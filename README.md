@@ -9,9 +9,18 @@ pattern `dirigera-adapter.js` already uses on the Node side. Named
 side is board-agnostic — see below); `home-device-playlist` has also
 been floated as a possibly more natural name later.
 
-**Status: unverified sketch.** Written without access to an ESP32
-toolchain — a real first draft to open in Arduino IDE and iterate on, not
-flash-tested against real hardware yet.
+**Status: builds and flashes for real.** Verified via PlatformIO against a
+real M5StickC (ESP32-PICO-D4) on the build-toolchain laptop: compiles
+clean, flashes over USB, boots. Two real bugs surfaced by that first
+actual compile, both fixed: `MDNS.address()` isn't a real method on
+`MDNSResponder` (the correct accessor, confirmed against the installed
+`ESPmDNS.h`, is `MDNS.IP()`); and an initial custom `build_src_filter` in
+`platformio.ini` silently excluded the root `.ino` from the build
+entirely (converted but never compiled -- PlatformIO's default filter
+picks it up correctly, so the override was dropped). Not yet verified:
+actually joining a real WiFi network and serving real BLE/mDNS scan
+results (needs a real `config.h` with real credentials, which stays
+personal/gitignored, so that verification happens per-install).
 
 Board-agnostic on purpose: this first skeleton uses no GPIOs at all (no
 display, no external RF receiver), so it should build for whichever
@@ -22,15 +31,33 @@ gets added as a third scanner alongside these two.
 
 ## Setup
 
-1. Arduino IDE, board package **arduino-esp32** (3.x).
+Two build paths work; pick whichever you already have installed. Both
+read the same `src/config.h` and produce the same firmware.
+
+**Arduino IDE**
+1. Board package **arduino-esp32** (3.x).
 2. Library Manager: install **NimBLE-Arduino** (h2zero) and
    **ArduinoJson** (bblanchon, v7). `ESPmDNS`/`WebServer`/`WiFi` are
    bundled with the arduino-esp32 core already.
-3. Copy `src/config.h.example` to `src/config.h`, fill in your real WiFi
+3. Open `meterkast-proxy.ino`, select your board, Upload.
+
+**PlatformIO** (same tool [pulsetape](https://github.com/rinie/pulsetape)
+uses, for anyone who already has it set up rather than Arduino IDE)
+```
+pio run -e m5stick-c              build
+pio run -e m5stick-c -t upload    flash (add --upload-port COMx if it can't autodetect)
+pio device monitor -b 115200      serial log
+```
+`platformio.ini` pins the `m5stick-c` board; other ESP32 boards need
+their own `[env:...]` added (board-agnostic sketch, but PlatformIO still
+wants a named board target).
+
+**Either way:**
+1. Copy `src/config.h.example` to `src/config.h`, fill in your real WiFi
    credentials. `config.h` is gitignored — personal, never committed, the
    same treatment meterkast-dns's own `.env`/`device-playlist.toml` get.
-4. Open `meterkast-proxy.ino`, select your board, Upload.
-5. Once connected, `http://<DEVICE_HOSTNAME>.local/` (or the IP printed
+2. Build + upload.
+3. Once connected, `http://<DEVICE_HOSTNAME>.local/` (or the IP printed
    over serial) shows the status page.
 
 ## Endpoints
