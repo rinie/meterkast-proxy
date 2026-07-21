@@ -32,7 +32,7 @@ void queryAllServiceTypes() {
       results.push_back({
         String(serviceTypes[i]) + "." + MDNS_SERVICE_PROTO,
         MDNS.hostname(j),
-        MDNS.address(j),
+        MDNS.IP(j),
         MDNS.port(j),
       });
     }
