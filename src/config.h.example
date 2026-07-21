@@ -1,0 +1,24 @@
+// Copy this file to config.h and fill in real values -- config.h itself is
+// gitignored (see .gitignore), the same "personal, real, never committed"
+// treatment meterkast-dns's own .env/device-playlist.toml get.
+#pragma once
+
+#define WIFI_SSID "your-wifi-ssid"
+#define WIFI_PASSWORD "your-wifi-password"
+
+// Also the mDNS hostname this device advertises itself as
+// (http://meterkast-proxy.local/ once connected) -- separate from
+// meterkast-dns's own hostname on purpose, this is a different device.
+#define DEVICE_HOSTNAME "meterkast-proxy"
+
+// mDNS has no wildcard "browse everything" query the way BLE scanning can
+// passively see any advertiser -- each service type has to be asked for
+// by name. Add whatever's relevant on your LAN; unknown/absent services
+// just return nothing, not an error.
+#define MDNS_SERVICE_TYPES { "_home-assistant", "_googlecast", "_hap", "_http" }
+#define MDNS_SERVICE_PROTO "_tcp"
+
+// How often the mDNS browser re-queries every configured service type.
+// BLE scanning is continuous/passive in the background and needs no
+// equivalent interval.
+#define MDNS_QUERY_INTERVAL_MS 30000
