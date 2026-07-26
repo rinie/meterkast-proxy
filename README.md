@@ -90,15 +90,21 @@ wants a named board target).
   installs use `NimBLEAdvertisedDeviceCallbacks`/`setAdvertisedDeviceCallbacks`
   instead — check your installed library version if `ble_scanner.cpp`
   doesn't compile as-is.
-- **`/scale/read` decodes the Bluetooth SIG-standard Weight Scale
-  Service/Weight Measurement characteristic by default** — real for any
-  scale that implements the standard profile, but many cheap consumer
-  scales (Xiaomi Mi Scale and similar) use a proprietary format instead.
-  Override `SCALE_SERVICE_UUID`/`SCALE_CHARACTERISTIC_UUID` in
-  `config.h` for a different profile; the decode itself
-  (`decodeWeightMeasurement` in `scale_reader.cpp`) would need real
-  reverse-engineering against that specific device's actual bytes if so.
-  Real-build-verified (compiles clean, confirmed against the real
-  installed NimBLE-Arduino 2.5.0 headers) but not yet tested against an
-  actual scale — no specific device was available when this was
-  written.
+- **`/scale/read` targets a Medisana BS440-family scale (BS410/BS430/
+  BS440/BS444) by default** — this device has no standard Bluetooth SIG
+  weight-scale profile at all; every UUID and the trigger command it
+  needs come from community reverse-engineering (openScale wiki,
+  `keptenkurk/BS440`, `ha-medisana-scale`, cross-referenced across all
+  three, not an official spec). The protocol itself is also more
+  involved than a simple read: subscribe to indications on three
+  characteristics, write a trigger command to a fourth, then wait for
+  the weight measurement to arrive asynchronously as an indication (see
+  `scale_reader.cpp` for the full writeup). Only the weight field is
+  decoded — body composition (fat/water/muscle/bone %, present in the
+  same feature-characteristic packet this already subscribes to) is
+  real, parked follow-up work. For a different scale entirely, override
+  every `SCALE_*` UUID/command in `config.h` and expect to reverse-engineer
+  its own protocol from scratch. Real-build-verified (compiles clean,
+  confirmed against the real installed NimBLE-Arduino 2.5.0 headers,
+  including its real `subscribe()`/`writeValue()` signatures) but not
+  yet tested against the actual physical scale.
