@@ -2,6 +2,7 @@
 #include "config.h"
 #include "ble_scanner.h"
 #include "mdns_browser.h"
+#include "scale_reader.h"
 #include <WebServer.h>
 #include <WiFi.h>
 
@@ -27,6 +28,11 @@ void handleRoot() {
   html += "<p>" + String(mdnsDeviceCount()) + " entr" + String(mdnsDeviceCount() == 1 ? "y" : "ies") +
           " seen. <a href=\"/scan/mdns\">raw JSON</a></p>";
 
+  if (scaleHasReading()) {
+    html += "<h2>Scale</h2>";
+    html += "<p>Last reading: <a href=\"/scale/read\">raw JSON</a></p>";
+  }
+
   html += "<p><a href=\"/status\">/status</a> (compact JSON, for a health check)</p>";
   html += "</body></html>";
   server.send(200, "text/html", html);
@@ -38,6 +44,14 @@ void handleBleJson() {
 
 void handleMdnsJson() {
   server.send(200, "application/json", mdnsDevicesJson());
+}
+
+// Always instant -- the buffered cache from scale_reader.cpp's own
+// background read cycle, never a live BLE round trip on the request
+// path. {} (empty object, not an error) if no scale is configured or
+// no successful read has happened yet.
+void handleScaleJson() {
+  server.send(200, "application/json", scaleReadingJson());
 }
 
 // Plain string-built JSON here, not ArduinoJson -- every value is numeric
@@ -60,6 +74,7 @@ void webServerBegin() {
   server.on("/", handleRoot);
   server.on("/scan/ble", handleBleJson);
   server.on("/scan/mdns", handleMdnsJson);
+  server.on("/scale/read", handleScaleJson);
   server.on("/status", handleStatusJson);
   server.begin();
   Serial.println("Web server started on port 80");

@@ -4,9 +4,9 @@
 // 433 MHz capture (board-specific pin wiring) slots in later as a third
 // scanner alongside these two, once this basis is working.
 //
-// UNCOMPILED / UNVERIFIED: written without access to an ESP32 toolchain --
-// a first real draft to build and iterate on in Arduino IDE, not something
-// flash-tested against real hardware yet.
+// Real-verified via PlatformIO against a real M5StickC -- builds,
+// flashes, joins WiFi, and serves real BLE/mDNS data. See README.md/
+// IMPLEMENTATION.md (meterkast-dns repo) for the real verification log.
 //
 // Libraries needed (Arduino Library Manager):
 //   - NimBLE-Arduino (h2zero)      -- lighter/faster than the stock BLEDevice
@@ -22,6 +22,7 @@
 #include "src/wifi_setup.h"
 #include "src/ble_scanner.h"
 #include "src/mdns_browser.h"
+#include "src/scale_reader.h"
 #include "src/web_server.h"
 
 void setup() {
@@ -32,6 +33,7 @@ void setup() {
   wifiSetupBegin();
   bleScannerBegin();
   mdnsBrowserBegin();
+  scaleReaderBegin();
   webServerBegin();
 
   Serial.println("Ready.");
@@ -40,5 +42,6 @@ void setup() {
 void loop() {
   bleScannerLoop();
   mdnsBrowserLoop();
+  scaleReaderLoop();
   webServerLoop();
 }

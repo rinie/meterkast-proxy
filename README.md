@@ -9,18 +9,19 @@ pattern `dirigera-adapter.js` already uses on the Node side. Named
 side is board-agnostic — see below); `home-device-playlist` has also
 been floated as a possibly more natural name later.
 
-**Status: builds and flashes for real.** Verified via PlatformIO against a
-real M5StickC (ESP32-PICO-D4) on the build-toolchain laptop: compiles
-clean, flashes over USB, boots. Two real bugs surfaced by that first
-actual compile, both fixed: `MDNS.address()` isn't a real method on
-`MDNSResponder` (the correct accessor, confirmed against the installed
-`ESPmDNS.h`, is `MDNS.IP()`); and an initial custom `build_src_filter` in
+**Status: real, running hardware.** Built, flashed, and verified live
+against a real M5StickC (ESP32-PICO-D4) on the build-toolchain laptop --
+joins WiFi for real, serves real `/scan/ble` and `/scan/mdns` data
+(real nearby BLE devices, real mDNS services including a real Home
+Assistant/domoticz/Google Cast/HomeKit instances on the LAN), and
+[meterkast-dns](https://github.com/rinie/meterkast-dns) discovers
+through it live. Two real bugs surfaced by the first actual compile,
+both fixed: `MDNS.address()` isn't a real method on `MDNSResponder`
+(the correct accessor, confirmed against the installed `ESPmDNS.h`, is
+`MDNS.IP()`); and an initial custom `build_src_filter` in
 `platformio.ini` silently excluded the root `.ino` from the build
 entirely (converted but never compiled -- PlatformIO's default filter
-picks it up correctly, so the override was dropped). Not yet verified:
-actually joining a real WiFi network and serving real BLE/mDNS scan
-results (needs a real `config.h` with real credentials, which stays
-personal/gitignored, so that verification happens per-install).
+picks it up correctly, so the override was dropped).
 
 Board-agnostic on purpose: this first skeleton uses no GPIOs at all (no
 display, no external RF receiver), so it should build for whichever
@@ -67,6 +68,7 @@ wants a named board target).
 | `GET /` | HTML | Tasmota-style status page: uptime, free heap, WiFi RSSI, device counts |
 | `GET /scan/ble` | JSON array | `{address, name?, rssi, ageMs}` per device seen, continuous background scan |
 | `GET /scan/mdns` | JSON array | `{serviceType, hostname, ip, port}` per entry, refreshed every `MDNS_QUERY_INTERVAL_MS` |
+| `GET /scale/read` | JSON object | `{weightKg, ageMs}` buffered (never a live BLE round trip), or `{}` if no `SCALE_MAC_ADDRESS` is configured or no read has succeeded yet -- see below |
 | `GET /status` | JSON object | compact health-check shape |
 
 ## Known real limitations (stated, not hidden)
@@ -88,3 +90,21 @@ wants a named board target).
   installs use `NimBLEAdvertisedDeviceCallbacks`/`setAdvertisedDeviceCallbacks`
   instead — check your installed library version if `ble_scanner.cpp`
   doesn't compile as-is.
+- **`/scale/read` targets a Medisana BS440-family scale (BS410/BS430/
+  BS440/BS444) by default** — this device has no standard Bluetooth SIG
+  weight-scale profile at all; every UUID and the trigger command it
+  needs come from community reverse-engineering (openScale wiki,
+  `keptenkurk/BS440`, `ha-medisana-scale`, cross-referenced across all
+  three, not an official spec). The protocol itself is also more
+  involved than a simple read: subscribe to indications on three
+  characteristics, write a trigger command to a fourth, then wait for
+  the weight measurement to arrive asynchronously as an indication (see
+  `scale_reader.cpp` for the full writeup). Only the weight field is
+  decoded — body composition (fat/water/muscle/bone %, present in the
+  same feature-characteristic packet this already subscribes to) is
+  real, parked follow-up work. For a different scale entirely, override
+  every `SCALE_*` UUID/command in `config.h` and expect to reverse-engineer
+  its own protocol from scratch. Real-build-verified (compiles clean,
+  confirmed against the real installed NimBLE-Arduino 2.5.0 headers,
+  including its real `subscribe()`/`writeValue()` signatures) but not
+  yet tested against the actual physical scale.

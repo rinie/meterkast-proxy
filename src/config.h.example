@@ -22,3 +22,37 @@
 // BLE scanning is continuous/passive in the background and needs no
 // equivalent interval.
 #define MDNS_QUERY_INTERVAL_MS 30000
+
+// Optional: a single BLE GATT device (a weight scale) to actively
+// connect to and read on an interval, buffering the last good result --
+// unlike the passive scanner above, this needs to know the exact
+// address up front. Find it via the real scale's own advertisement
+// (GET /scan/ble while it's powered on/awake, or step on it once) --
+// Medisana BS440-family scales advertise from a MAC starting E4:54:EB.
+// Leave undefined (comment out) entirely on a board with no scale --
+// the whole feature, and its flash cost, compiles out.
+// #define SCALE_MAC_ADDRESS "E4:54:EB:XX:XX:XX"
+
+// Defaults target a Medisana BS440-family scale (BS410/BS430/BS440/
+// BS444 -- same protocol across all of them) if left undefined. This
+// device has no standard Bluetooth SIG weight-scale profile at all --
+// every UUID/command below is reverse-engineered (openScale wiki,
+// keptenkurk/BS440, ha-medisana-scale, cross-referenced, not an
+// official spec). Override every one of these for a different scale
+// entirely -- see scale_reader.cpp for the full protocol writeup.
+// #define SCALE_SERVICE_UUID "000078b2-0000-1000-8000-00805f9b34fb"
+// #define SCALE_WEIGHT_CHARACTERISTIC_UUID "00008a21-0000-1000-8000-00805f9b34fb"
+// #define SCALE_FEATURE_CHARACTERISTIC_UUID "00008a22-0000-1000-8000-00805f9b34fb"
+// #define SCALE_CUSTOM5_CHARACTERISTIC_UUID "00008a82-0000-1000-8000-00805f9b34fb"
+// #define SCALE_CMD_CHARACTERISTIC_UUID "00008a81-0000-1000-8000-00805f9b34fb"
+// #define SCALE_TRIGGER_COMMAND { 0x02, 0x7b, 0x7b, 0xf6, 0x0d }
+
+// How often to run a real connect/subscribe/trigger/read cycle against
+// the scale. Defaults to 30000 if left undefined.
+// #define SCALE_READ_INTERVAL_MS 30000
+
+// How long to wait for the weight indication to arrive after writing
+// the trigger command before giving up on that cycle (this device's
+// measurement is asynchronous, not a direct reply). Defaults to 8000
+// if left undefined.
+// #define SCALE_INDICATION_TIMEOUT_MS 8000
