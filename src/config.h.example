@@ -22,3 +22,22 @@
 // BLE scanning is continuous/passive in the background and needs no
 // equivalent interval.
 #define MDNS_QUERY_INTERVAL_MS 30000
+
+// Optional: a single BLE GATT device (a weight scale) to actively
+// connect to and read on an interval, buffering the last good result --
+// unlike the passive scanner above, this needs to know the exact
+// address up front. Leave undefined (comment out) entirely on a board
+// with no scale -- the whole feature, and its flash cost, compiles out.
+// #define SCALE_MAC_ADDRESS "AA:BB:CC:DD:EE:FF"
+
+// Defaults to the Bluetooth SIG-standard Weight Scale Service (0x181D)
+// / Weight Measurement characteristic (0x2A9D) if left undefined --
+// override both here if your specific scale uses a proprietary profile
+// instead (common on cheap consumer scales; verify against the real
+// device before trusting the decode -- see scale_reader.cpp).
+// #define SCALE_SERVICE_UUID "0000181d-0000-1000-8000-00805f9b34fb"
+// #define SCALE_CHARACTERISTIC_UUID "00002a9d-0000-1000-8000-00805f9b34fb"
+
+// How often to run a real connect/read/disconnect cycle against the
+// scale. Defaults to 30000 if left undefined.
+// #define SCALE_READ_INTERVAL_MS 30000
