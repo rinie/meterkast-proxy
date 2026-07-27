@@ -2,6 +2,8 @@
 #include <NimBLEDevice.h>
 #include <ArduinoJson.h>  // assumes ArduinoJson v7 (JsonDocument, no fixed capacity) -- v6's DynamicJsonDocument(size) API differs
 #include <map>
+#include <algorithm>
+#include <cctype>
 
 // NimBLE-Arduino has real API differences between v1.x (NimBLEAdvertisedDeviceCallbacks,
 // scan->setAdvertisedDeviceCallbacks(...)) and v2.x (NimBLEScanCallbacks,
@@ -78,11 +80,24 @@ size_t bleDeviceCount() {
   return seenDevices.size();
 }
 
-String bleDevicesJson() {
+namespace {
+
+// Shared by bleDevicesJson()/bleDevicesJsonByPrefix() -- an empty prefix
+// matches everything. Case-insensitive since MAC addresses show up in
+// either case depending on the caller.
+String serializeSeenDevices(const String& prefix) {
+  std::string prefixLower(prefix.c_str());
+  std::transform(prefixLower.begin(), prefixLower.end(), prefixLower.begin(), ::tolower);
+
   JsonDocument doc;
   JsonArray arr = doc.to<JsonArray>();
   unsigned long now = millis();
   for (const auto& [address, device] : seenDevices) {
+    if (!prefixLower.empty()) {
+      std::string addressLower = address;
+      std::transform(addressLower.begin(), addressLower.end(), addressLower.begin(), ::tolower);
+      if (addressLower.compare(0, prefixLower.size(), prefixLower) != 0) continue;
+    }
     JsonObject obj = arr.add<JsonObject>();
     obj["address"] = address;
     if (!device.name.empty()) obj["name"] = device.name;
@@ -92,4 +107,17 @@ String bleDevicesJson() {
   String out;
   serializeJson(doc, out);
   return out;
+}
+
+}  // namespace
+
+String bleDevicesJson() {
+  return serializeSeenDevices("");
+}
+
+// Discovery helper for devices whose MAC isn't known up front (e.g. the
+// scale reader, config.h) -- reuses this already-running passive scan
+// instead of a dedicated active scan for the purpose.
+String bleDevicesJsonByPrefix(const String& prefix) {
+  return serializeSeenDevices(prefix);
 }

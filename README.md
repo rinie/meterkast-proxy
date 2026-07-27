@@ -54,11 +54,22 @@ their own `[env:...]` added (board-agnostic sketch, but PlatformIO still
 wants a named board target).
 
 **Either way:**
-1. Copy `src/config.h.example` to `src/config.h`, fill in your real WiFi
-   credentials. `config.h` is gitignored — personal, never committed, the
-   same treatment meterkast-dns's own `.env`/`device-playlist.toml` get.
+1. Copy `src/config.h.example` to `src/config.h`. `config.h` is
+   gitignored — personal, never committed, the same treatment
+   meterkast-dns's own `.env`/`device-playlist.toml` get. WiFi credentials
+   are optional in it now (see below) — no editing required to get to a
+   working build.
 2. Build + upload.
-3. Once connected, `http://<DEVICE_HOSTNAME>.local/` (or the IP printed
+3. **First boot with no saved WiFi:** the device starts an open access
+   point named after `DEVICE_HOSTNAME` (default `meterkast-proxy`).
+   Connect to it from any phone/laptop and a setup page opens
+   automatically (or open `http://192.168.4.1/` manually); enter your
+   real WiFi SSID/password there. Credentials are saved to the device's
+   NVS flash (not `config.h`) and reused on every future boot — no
+   reflash needed to join a network, and none needed to move the device
+   to a different network later (`POST /wifi/reset` clears the saved
+   credentials and reboots back into this setup AP).
+4. Once connected, `http://<DEVICE_HOSTNAME>.local/` (or the IP printed
    over serial) shows the status page.
 
 ## Endpoints
@@ -68,11 +79,22 @@ wants a named board target).
 | `GET /` | HTML | Tasmota-style status page: uptime, free heap, WiFi RSSI, device counts |
 | `GET /scan/ble` | JSON array | `{address, name?, rssi, ageMs}` per device seen, continuous background scan |
 | `GET /scan/mdns` | JSON array | `{serviceType, hostname, ip, port}` per entry, refreshed every `MDNS_QUERY_INTERVAL_MS` |
-| `GET /scale/read` | JSON object | `{weightKg, ageMs}` buffered (never a live BLE round trip), or `{}` if no `SCALE_MAC_ADDRESS` is configured or no read has succeeded yet -- see below |
+| `GET /scale/read` | JSON object | `{weightKg, ageMs}` buffered (never a live BLE round trip), or `{}` if no scale MAC is configured or no read has succeeded yet -- see below |
+| `GET /scale/discover?prefix=` | JSON array | Same shape as `/scan/ble`, filtered to addresses starting with `prefix` (default `E4:54:EB`, the Medisana range) -- finds the scale's MAC without hardcoding a guess; step on the scale, then poll this |
+| `GET /scale/config` | JSON object | `{"mac":"E4:54:EB:.."}` or `{"mac":null}` -- the currently configured scale MAC |
+| `POST /scale/config` | JSON object | Body `{"mac":"E4:54:EB:.."}` sets the scale MAC at runtime (persisted to NVS, no reflash); `400` on a malformed address |
+| `POST /wifi/reset` | JSON object | Clears the saved WiFi credentials and reboots back into the setup captive portal -- see [Setup](#setup) |
 | `GET /status` | JSON object | compact health-check shape |
 
 ## Known real limitations (stated, not hidden)
 
+- **The setup captive portal ([WiFiProvisioner](https://github.com/SanteriLindfors/WiFiProvisioner))
+  has the usual cross-OS captive-portal quirks** -- inherent to the DNS-hijack
+  technique itself (see that library's own testing notes), not specific to
+  this integration: some OS/browser combinations may not auto-pop the setup
+  page, requiring `http://192.168.4.1/` to be opened manually. The setup AP
+  is open (no password) by design, the same tradeoff every consumer IoT
+  device's first-time-setup AP makes.
 - **BLE scanning is continuous and passive/active** (NimBLE's own
   background task) — `MAX_TRACKED_DEVICES` (100, in `ble_scanner.cpp`)
   bounds memory by evicting the oldest-seen entry once full.

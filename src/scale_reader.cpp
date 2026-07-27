@@ -1,13 +1,7 @@
 #include "scale_reader.h"
 #include "config.h"
-
-// The whole feature compiles out when SCALE_MAC_ADDRESS isn't defined
-// -- most boards won't have a scale, and this keeps flash usage (already
-// tight -- see README.md) at zero cost for boards that don't need it.
-#ifdef SCALE_MAC_ADDRESS
 #include <NimBLEDevice.h>
-
-namespace {
+#include <Preferences.h>
 
 // Defaults target a Medisana BS440-family scale (BS410/BS430/BS440/
 // BS444, all share the same protocol) -- this device has NO standard
@@ -53,10 +47,21 @@ namespace {
 #define SCALE_INDICATION_TIMEOUT_MS 8000
 #endif
 
+namespace {
+
+constexpr const char* SCALE_PREFS_NAMESPACE = "scale";
+
 float lastWeightKg = 0;
 unsigned long lastReadMs = 0;
 bool hasReading = false;
 unsigned long lastAttemptMs = 0;
+
+// The scale's BLE MAC -- runtime-configurable (POST /scale/config,
+// web_server.cpp) and persisted via Preferences, not a compile-time
+// requirement. config.h's SCALE_MAC_ADDRESS (if still defined) is only an
+// optional one-time seed, same treatment as WiFi credentials get in
+// wifi_setup.cpp.
+String configuredMac;
 
 // Set from the BLE host's own callback task, read from the main loop()
 // task's busy-wait below -- a plain bool/float pair, not mutex-guarded,
@@ -64,6 +69,19 @@ unsigned long lastAttemptMs = 0;
 // callback already uses elsewhere in this firmware.
 volatile bool weightIndicationReceived = false;
 float pendingWeightKg = 0;
+
+bool isValidMacFormat(const String& mac) {
+  if (mac.length() != 17) return false;
+  for (int i = 0; i < 17; i++) {
+    char c = mac[i];
+    if (i % 3 == 2) {
+      if (c != ':') return false;
+    } else if (!isxdigit(static_cast<unsigned char>(c))) {
+      return false;
+    }
+  }
+  return true;
+}
 
 // Weight Measurement packet (characteristic 0x8a21) -- byte layout per
 // the openScale wiki's Medisana-BS444 page (cross-referenced against
@@ -100,8 +118,10 @@ void onOtherIndication(NimBLERemoteCharacteristic*, uint8_t*, size_t, bool) {}
 // per attempt, not a quick round trip the way the original
 // SIG-standard-profile draft of this file assumed.
 void performScaleRead() {
+  if (configuredMac.isEmpty()) return;
+
   NimBLEClient* client = NimBLEDevice::createClient();
-  bool connected = client->connect(NimBLEAddress(SCALE_MAC_ADDRESS, BLE_ADDR_PUBLIC));
+  bool connected = client->connect(NimBLEAddress(configuredMac.c_str(), BLE_ADDR_PUBLIC));
   if (connected) {
     NimBLERemoteService* service = client->getService(SCALE_SERVICE_UUID);
     NimBLERemoteCharacteristic* weightChar = service ? service->getCharacteristic(SCALE_WEIGHT_CHARACTERISTIC_UUID) : nullptr;
@@ -153,6 +173,20 @@ void performScaleRead() {
 }  // namespace
 
 void scaleReaderBegin() {
+  Preferences prefs;
+  prefs.begin(SCALE_PREFS_NAMESPACE, true);
+  configuredMac = prefs.getString("mac", "");
+  prefs.end();
+
+#ifdef SCALE_MAC_ADDRESS
+  // config.h's SCALE_MAC_ADDRESS is an optional one-time seed -- only used
+  // before anything has ever been saved via POST /scale/config, never
+  // required (see README).
+  if (configuredMac.isEmpty()) {
+    configuredMac = SCALE_MAC_ADDRESS;
+  }
+#endif
+
   lastAttemptMs = 0;  // read immediately on the first loop() pass
 }
 
@@ -175,11 +209,20 @@ bool scaleHasReading() {
   return hasReading;
 }
 
-#else  // !defined(SCALE_MAC_ADDRESS)
+bool scaleSetMac(const String& mac) {
+  if (!isValidMacFormat(mac)) return false;
 
-void scaleReaderBegin() {}
-void scaleReaderLoop() {}
-String scaleReadingJson() { return "{}"; }
-bool scaleHasReading() { return false; }
+  Preferences prefs;
+  prefs.begin(SCALE_PREFS_NAMESPACE, false);
+  prefs.putString("mac", mac);
+  prefs.end();
 
-#endif
+  configuredMac = mac;
+  hasReading = false;
+  lastAttemptMs = 0;  // attempt a read against the new address on the next loop() pass
+  return true;
+}
+
+String scaleGetMac() {
+  return configuredMac;
+}

@@ -3,8 +3,11 @@
 #include "ble_scanner.h"
 #include "mdns_browser.h"
 #include "scale_reader.h"
+#include "wifi_setup.h"
 #include <WebServer.h>
 #include <WiFi.h>
+#include <ArduinoJson.h>
+#include <Preferences.h>
 
 namespace {
 
@@ -54,6 +57,53 @@ void handleScaleJson() {
   server.send(200, "application/json", scaleReadingJson());
 }
 
+// Discovery helper: the scale's MAC isn't known up front, so this filters
+// the already-running passive BLE scan (ble_scanner.cpp) by address
+// prefix instead of requiring a hardcoded guess. Defaults to the
+// Medisana BS440-family range; override with ?prefix= for a different
+// scale/device entirely.
+void handleScaleDiscoverJson() {
+  String prefix = server.hasArg("prefix") ? server.arg("prefix") : "E4:54:EB";
+  server.send(200, "application/json", bleDevicesJsonByPrefix(prefix));
+}
+
+void handleScaleConfigGet() {
+  String mac = scaleGetMac();
+  String json = mac.isEmpty() ? "{\"mac\":null}" : "{\"mac\":\"" + mac + "\"}";
+  server.send(200, "application/json", json);
+}
+
+// Runtime scale MAC configuration -- POST {"mac":"E4:54:EB:.."}, persisted
+// via Preferences (scale_reader.cpp), no reflash required.
+void handleScaleConfigPost() {
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, server.arg("plain"));
+  if (err || !doc["mac"].is<const char*>()) {
+    server.send(400, "application/json", "{\"error\":\"expected JSON body {\\\"mac\\\":\\\"XX:XX:XX:XX:XX:XX\\\"}\"}");
+    return;
+  }
+  String mac = doc["mac"].as<const char*>();
+  if (!scaleSetMac(mac)) {
+    server.send(400, "application/json", "{\"error\":\"malformed MAC, expected XX:XX:XX:XX:XX:XX\"}");
+    return;
+  }
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+// Clears saved WiFi credentials and reboots -- the re-entry path into the
+// WiFiProvisioner captive portal (wifi_setup.cpp) for a device that's
+// already connected, without needing a physical button (this project is
+// deliberately board/GPIO-agnostic -- see README).
+void handleWifiReset() {
+  Preferences prefs;
+  prefs.begin(WIFI_PREFS_NAMESPACE, false);
+  prefs.clear();
+  prefs.end();
+  server.send(200, "application/json", "{\"ok\":true,\"rebooting\":true}");
+  delay(500);  // let the response actually flush before the reboot drops the connection
+  ESP.restart();
+}
+
 // Plain string-built JSON here, not ArduinoJson -- every value is numeric
 // (nothing to escape), so the extra dependency/overhead isn't worth it
 // for this one small, fixed-shape endpoint.
@@ -75,6 +125,10 @@ void webServerBegin() {
   server.on("/scan/ble", handleBleJson);
   server.on("/scan/mdns", handleMdnsJson);
   server.on("/scale/read", handleScaleJson);
+  server.on("/scale/discover", handleScaleDiscoverJson);
+  server.on("/scale/config", HTTP_GET, handleScaleConfigGet);
+  server.on("/scale/config", HTTP_POST, handleScaleConfigPost);
+  server.on("/wifi/reset", HTTP_POST, handleWifiReset);
   server.on("/status", handleStatusJson);
   server.begin();
   Serial.println("Web server started on port 80");
