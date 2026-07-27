@@ -121,6 +121,17 @@ void performScaleRead() {
   if (configuredMac.isEmpty()) return;
 
   NimBLEClient* client = NimBLEDevice::createClient();
+  // NimBLE's own defaults (30s connect timeout x 3 total attempts) can
+  // block this whole connect/read cycle -- and with it the main loop()
+  // (including the web server) -- for well over a minute against an
+  // unreachable or mistyped address. Bounded here to a few seconds so a
+  // bad POST /scale/config MAC doesn't wedge HTTP responsiveness on every
+  // SCALE_READ_INTERVAL_MS cycle.
+  client->setConnectTimeout(5000);
+  NimBLEClient::Config clientConfig = client->getConfig();
+  clientConfig.connectFailRetries = 0;
+  client->setConfig(clientConfig);
+
   bool connected = client->connect(NimBLEAddress(configuredMac.c_str(), BLE_ADDR_PUBLIC));
   if (connected) {
     NimBLERemoteService* service = client->getService(SCALE_SERVICE_UUID);
