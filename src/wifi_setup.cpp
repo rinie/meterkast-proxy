@@ -4,10 +4,14 @@
 #include <ESPmDNS.h>
 #include <Preferences.h>
 #include <WiFiProvisioner.h>
+#include <ArduinoJson.h>
 
 namespace {
 
 constexpr unsigned long WIFI_CONNECT_TIMEOUT_MS = 15000;
+constexpr size_t SERIAL_LINE_MAX_LEN = 256;
+
+String serialLineBuffer;
 
 // Bounded connect attempt against Preferences-saved credentials -- unlike a
 // bare WiFi.begin() + infinite status-poll loop, this can fail and return,
@@ -85,6 +89,38 @@ void runProvisioningPortal() {
   provisioner.startProvisioning();
 }
 
+// Handles one complete line read from Serial by wifiSetupLoop() below --
+// expects `wifi:{"ssid":"...","password":"..."}`. Saves to the same
+// Preferences namespace the portal uses and reboots to apply it, so a
+// tethered device doesn't need to join its own setup AP to reconfigure.
+void handleSerialLine(const String& line) {
+  if (!line.startsWith("wifi:")) return;
+
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, line.substring(5));
+  if (err || !doc["ssid"].is<const char*>()) {
+    Serial.println("wifi: command needs JSON like {\"ssid\":\"...\",\"password\":\"...\"}");
+    return;
+  }
+
+  String ssid = doc["ssid"].as<const char*>();
+  if (ssid.isEmpty()) {
+    Serial.println("wifi: command needs a non-empty \"ssid\"");
+    return;
+  }
+  String password = doc["password"].is<const char*>() ? doc["password"].as<const char*>() : "";
+
+  Preferences prefs;
+  prefs.begin(WIFI_PREFS_NAMESPACE, false);
+  prefs.putString("ssid", ssid);
+  prefs.putString("password", password);
+  prefs.end();
+
+  Serial.printf("WiFi credentials for \"%s\" saved via serial, rebooting...\n", ssid.c_str());
+  delay(200);  // let the message actually flush before the reboot cuts the connection
+  ESP.restart();
+}
+
 }  // namespace
 
 void wifiSetupBegin() {
@@ -103,5 +139,22 @@ void wifiSetupBegin() {
     Serial.printf("mDNS responder started: http://%s.local/\n", DEVICE_HOSTNAME);
   } else {
     Serial.println("mDNS responder failed to start (browsing for other devices still works)");
+  }
+}
+
+void wifiSetupLoop() {
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\n') {
+      serialLineBuffer.trim();
+      if (serialLineBuffer.length() > 0) handleSerialLine(serialLineBuffer);
+      serialLineBuffer = "";
+    } else if (c != '\r') {
+      serialLineBuffer += c;
+      // Guard against unbounded growth from stray noise/binary data on the
+      // line with no newline in sight -- drop and resync rather than let
+      // this grow forever.
+      if (serialLineBuffer.length() > SERIAL_LINE_MAX_LEN) serialLineBuffer = "";
+    }
   }
 }

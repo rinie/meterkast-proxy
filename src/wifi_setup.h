@@ -14,3 +14,10 @@
 // WiFi is up anyway. See web_server.h's POST /wifi/reset for how to force
 // the portal to reappear on a device that's already connected.
 void wifiSetupBegin();
+
+// Convenience alternative to the captive portal for a tethered/debug
+// setup: send a line `wifi:{"ssid":"...","password":"..."}` over USB
+// Serial and the device saves it (same Preferences namespace the portal
+// uses) and reboots to apply it. No-op until a complete line arrives --
+// call every loop() pass.
+void wifiSetupLoop();

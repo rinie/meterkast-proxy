@@ -68,7 +68,11 @@ wants a named board target).
    NVS flash (not `config.h`) and reused on every future boot — no
    reflash needed to join a network, and none needed to move the device
    to a different network later (`POST /wifi/reset` clears the saved
-   credentials and reboots back into this setup AP).
+   credentials and reboots back into this setup AP). If the device is
+   tethered over USB instead, sending a serial line
+   `wifi:{"ssid":"...","password":"..."}` (e.g. `pio device monitor`'s
+   input, or any serial terminal) does the same thing without needing to
+   join the setup AP at all.
 4. Once connected, `http://<DEVICE_HOSTNAME>.local/` (or the IP printed
    over serial) shows the status page.
 
