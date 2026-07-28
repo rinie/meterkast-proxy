@@ -17,7 +17,13 @@
 // Also the mDNS hostname this device advertises itself as
 // (http://meterkast-proxy.local/ once connected) -- separate from
 // meterkast-dns's own hostname on purpose, this is a different device.
+// #ifndef-guarded so a per-board platformio.ini env can override it via
+// build_flags (see esp32-c6-devkitc-1's -DDEVICE_HOSTNAME, needed so it
+// doesn't collide on the LAN/mDNS with another board using this same
+// config.h -- e.g. m5stick-c) without needing a second config.h.
+#ifndef DEVICE_HOSTNAME
 #define DEVICE_HOSTNAME "meterkast-proxy"
+#endif
 
 // mDNS has no wildcard "browse everything" query the way BLE scanning can
 // passively see any advertiser -- each service type has to be asked for
