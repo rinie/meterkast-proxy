@@ -1,1 +1,7 @@
 src/config.h
+.pio/
+build.log
+; Auto-written by the ESP-IDF-as-component build path (pioarduino/newer
+; arduino-esp32 cores) the first time a project builds against it --
+; generated tooling output, not source.
+idf_component.yml

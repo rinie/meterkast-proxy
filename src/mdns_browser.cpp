@@ -32,7 +32,17 @@ void queryAllServiceTypes() {
       results.push_back({
         String(serviceTypes[i]) + "." + MDNS_SERVICE_PROTO,
         MDNS.hostname(j),
+        // ESPmDNS's per-result IP accessor was renamed IP() -> address()
+        // between arduino-esp32 core major versions 2.x and 3.x (real,
+        // confirmed against both installed cores -- this project now
+        // builds against both: m5stick-c on the 2.x-era official
+        // platform, esp32-c6-devkitc-1 on the 3.x-era pioarduino fork --
+        // see platformio.ini).
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+        MDNS.address(j),
+#else
         MDNS.IP(j),
+#endif
         MDNS.port(j),
       });
     }

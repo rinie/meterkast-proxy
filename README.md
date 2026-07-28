@@ -49,9 +49,19 @@ pio run -e m5stick-c              build
 pio run -e m5stick-c -t upload    flash (add --upload-port COMx if it can't autodetect)
 pio device monitor -b 115200      serial log
 ```
-`platformio.ini` pins the `m5stick-c` board; other ESP32 boards need
-their own `[env:...]` added (board-agnostic sketch, but PlatformIO still
-wants a named board target).
+`platformio.ini` has one `[env:...]` per board (board-agnostic sketch, but
+PlatformIO still wants a named board target); add another for any other
+ESP32 board the same way.
+
+**Generic ESP32-C6 boards** (`esp32-c6-devkitc-1` env, CH343 USB-serial
+bridge) need an extra step and their own isolated PlatformIO cache dir --
+see the comments on that `[env:...]` in `platformio.ini` for the real
+reasons (a NimBLE/core version mismatch, and the platform package
+colliding with `m5stick-c`'s in the default shared cache):
+```
+$env:PLATFORMIO_CORE_DIR = "<separate-path>"   # PowerShell; use export on macOS/Linux
+pio run -e esp32-c6-devkitc-1 -t upload --upload-port COMx
+```
 
 **Either way:**
 1. Copy `src/config.h.example` to `src/config.h`. `config.h` is
