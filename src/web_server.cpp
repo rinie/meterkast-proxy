@@ -3,6 +3,7 @@
 #include "ble_scanner.h"
 #include "mdns_browser.h"
 #include "scale_reader.h"
+#include "zigbee_scanner.h"
 #include "wifi_setup.h"
 #include <WebServer.h>
 #include <WiFi.h>
@@ -47,6 +48,13 @@ void handleBleJson() {
 
 void handleMdnsJson() {
   server.send(200, "application/json", mdnsDevicesJson());
+}
+
+// Nearby Zigbee *networks* (coordinators/PANs), not their member devices
+// -- see zigbee_scanner.h. [] on any build without real Zigbee support
+// (most boards/builds -- see platformio.ini), not an error.
+void handleZigbeeJson() {
+  server.send(200, "application/json", zigbeeNetworksJson());
 }
 
 // Always instant -- the buffered cache from scale_reader.cpp's own
@@ -113,7 +121,8 @@ void handleStatusJson() {
   json += "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",";
   json += "\"wifiRssi\":" + String(WiFi.RSSI()) + ",";
   json += "\"bleDeviceCount\":" + String(bleDeviceCount()) + ",";
-  json += "\"mdnsDeviceCount\":" + String(mdnsDeviceCount());
+  json += "\"mdnsDeviceCount\":" + String(mdnsDeviceCount()) + ",";
+  json += "\"zigbeeNetworkCount\":" + String(zigbeeNetworkCount());
   json += "}";
   server.send(200, "application/json", json);
 }
@@ -124,6 +133,7 @@ void webServerBegin() {
   server.on("/", handleRoot);
   server.on("/scan/ble", handleBleJson);
   server.on("/scan/mdns", handleMdnsJson);
+  server.on("/scan/zigbee", handleZigbeeJson);
   server.on("/scale/read", handleScaleJson);
   server.on("/scale/discover", handleScaleDiscoverJson);
   server.on("/scale/config", HTTP_GET, handleScaleConfigGet);

@@ -63,6 +63,15 @@ $env:PLATFORMIO_CORE_DIR = "<separate-path>"   # PowerShell; use export on macOS
 pio run -e esp32-c6-devkitc-1 -t upload --upload-port COMx
 ```
 
+That same board also has an opt-in `esp32-c6-devkitc-1-zigbee` env for
+`GET /scan/zigbee` (see [Known real limitations](#known-real-limitations-stated-not-hidden)
+for what it actually reports) -- same isolated-cache requirement as
+above, different env name:
+```
+$env:PLATFORMIO_CORE_DIR = "<separate-path>"
+pio run -e esp32-c6-devkitc-1-zigbee -t upload --upload-port COMx
+```
+
 **Either way:**
 1. Copy `src/config.h.example` to `src/config.h`. `config.h` is
    gitignored — personal, never committed, the same treatment
@@ -92,7 +101,8 @@ pio run -e esp32-c6-devkitc-1 -t upload --upload-port COMx
 |---|---|---|
 | `GET /` | HTML | Tasmota-style status page: uptime, free heap, WiFi RSSI, device counts |
 | `GET /scan/ble` | JSON array | `{address, name?, rssi, ageMs}` per device seen, continuous background scan |
-| `GET /scan/mdns` | JSON array | `{serviceType, hostname, ip, port}` per entry, refreshed every `MDNS_QUERY_INTERVAL_MS` |
+| `GET /scan/mdns` | JSON array | `{serviceType, hostname, ip, port}` per entry, refreshed every `MDNS_QUERY_INTERVAL_MS` -- includes Matter-over-WiFi nodes if `_matter`/`_matterc` are in `MDNS_SERVICE_TYPES` (the default `config.h.example` already has both) |
+| `GET /scan/zigbee` | JSON array | `{panId, extendedPanId, channel, permitJoining, routerCapacity, endDeviceCapacity}` per nearby Zigbee network -- `esp32-c6-devkitc-1-zigbee` build only, `[]` on every other board/env, see below |
 | `GET /scale/read` | JSON object | `{weightKg, ageMs}` buffered (never a live BLE round trip), or `{}` if no scale MAC is configured or no read has succeeded yet -- see below |
 | `GET /scale/discover?prefix=` | JSON array | Same shape as `/scan/ble`, filtered to addresses starting with `prefix` (default `E4:54:EB`, the Medisana range) -- finds the scale's MAC without hardcoding a guess; step on the scale, then poll this |
 | `GET /scale/config` | JSON object | `{"mac":"E4:54:EB:.."}` or `{"mac":null}` -- the currently configured scale MAC |
@@ -109,6 +119,30 @@ pio run -e esp32-c6-devkitc-1 -t upload --upload-port COMx
   page, requiring `http://192.168.4.1/` to be opened manually. The setup AP
   is open (no password) by design, the same tradeoff every consumer IoT
   device's first-time-setup AP makes.
+- **`/scan/zigbee` reports nearby Zigbee *networks*, not their member
+  devices** -- coordinators/PANs (PAN ID, channel, whether they're open
+  to joins), the Zigbee equivalent of a WiFi network scan. Zigbee has no
+  "see all nearby device traffic" mode the way BLE does; actually
+  enumerating a network's member devices means joining it, a real,
+  consequential action on someone's actual mesh (visible to its
+  coordinator, occupies a device slot) that this deliberately never does
+  on its own. Only ships in the separate `esp32-c6-devkitc-1-zigbee` env
+  (needs the C6's 802.15.4 radio plus a dedicated build flag and
+  partition table -- see `platformio.ini`); also note that build shares
+  the C6's one 2.4GHz radio across BLE + WiFi + Zigbee via ESP-IDF's
+  software coexistence scheduler, so scan cadence across all three may
+  soften somewhat under concurrent load.
+- **Matter support is mDNS-only (Matter-over-WiFi), not a real Matter
+  stack.** `_matter._tcp` (operational nodes) and `_matterc._udp`
+  (commissionable nodes actively seeking pairing) are just two more
+  service types `mdns_browser.cpp` already knows how to browse -- no
+  commissioning, no accessory/controller role, nothing Matter-specific
+  beyond that. Matter-over-Thread devices (as opposed to Matter-over-WiFi)
+  aren't visible this way at all -- they'd need this device to join their
+  Thread mesh directly, out of scope here. A real Matter accessory or
+  controller role would need Espressif's `esp-matter` SDK, which is
+  ESP-IDF-native (not an Arduino library) and needs a completely separate
+  project/build system from this one.
 - **BLE scanning is continuous and passive/active** (NimBLE's own
   background task) — `MAX_TRACKED_DEVICES` (100, in `ble_scanner.cpp`)
   bounds memory by evicting the oldest-seen entry once full.

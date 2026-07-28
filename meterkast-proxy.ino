@@ -23,6 +23,7 @@
 #include "src/ble_scanner.h"
 #include "src/mdns_browser.h"
 #include "src/scale_reader.h"
+#include "src/zigbee_scanner.h"
 #include "src/web_server.h"
 
 void setup() {
@@ -34,6 +35,7 @@ void setup() {
   bleScannerBegin();
   mdnsBrowserBegin();
   scaleReaderBegin();
+  zigbeeScannerBegin();
   webServerBegin();
 
   Serial.println("Ready.");
@@ -44,5 +46,6 @@ void loop() {
   bleScannerLoop();
   mdnsBrowserLoop();
   scaleReaderLoop();
+  zigbeeScannerLoop();
   webServerLoop();
 }
