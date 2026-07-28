@@ -16,3 +16,9 @@ void bleScannerLoop();
 // pattern as dirigera-adapter.js.
 String bleDevicesJson();
 size_t bleDeviceCount();
+
+// Same shape as bleDevicesJson(), filtered to addresses starting with
+// prefix (case-insensitive; empty prefix matches everything). A
+// discovery helper for finding an unknown-up-front device's MAC (e.g.
+// GET /scale/discover) without a dedicated active scan.
+String bleDevicesJsonByPrefix(const String& prefix);

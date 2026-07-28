@@ -40,6 +40,7 @@ void setup() {
 }
 
 void loop() {
+  wifiSetupLoop();
   bleScannerLoop();
   mdnsBrowserLoop();
   scaleReaderLoop();

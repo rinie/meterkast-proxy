@@ -3,8 +3,16 @@
 // treatment meterkast-dns's own .env/device-playlist.toml get.
 #pragma once
 
-#define WIFI_SSID "your-wifi-ssid"
-#define WIFI_PASSWORD "your-wifi-password"
+// Optional one-time seed, not a requirement -- used only on the very
+// first boot, before anything's ever been saved via the captive portal.
+// Leave both undefined (comment out) entirely and the device will boot
+// straight into an open "DEVICE_HOSTNAME"-named setup AP; connect to it
+// and open http://192.168.4.1/ to provision WiFi from any phone/laptop,
+// no reflash required. Once provisioned, credentials live in NVS
+// (Preferences), not here -- POST /wifi/reset (see README) clears them
+// and reboots back into the portal if you ever need to reconfigure.
+// #define WIFI_SSID "your-wifi-ssid"
+// #define WIFI_PASSWORD "your-wifi-password"
 
 // Also the mDNS hostname this device advertises itself as
 // (http://meterkast-proxy.local/ once connected) -- separate from
@@ -23,14 +31,14 @@
 // equivalent interval.
 #define MDNS_QUERY_INTERVAL_MS 30000
 
-// Optional: a single BLE GATT device (a weight scale) to actively
-// connect to and read on an interval, buffering the last good result --
-// unlike the passive scanner above, this needs to know the exact
-// address up front. Find it via the real scale's own advertisement
-// (GET /scan/ble while it's powered on/awake, or step on it once) --
-// Medisana BS440-family scales advertise from a MAC starting E4:54:EB.
-// Leave undefined (comment out) entirely on a board with no scale --
-// the whole feature, and its flash cost, compiles out.
+// Optional one-time seed for the scale's BLE MAC (a single GATT device --
+// a weight scale -- actively connected to and read on an interval,
+// buffering the last good result). Like WIFI_SSID/PASSWORD above, this
+// isn't required: leave it undefined and configure the MAC at runtime
+// instead -- GET /scale/discover while stepping on the scale finds it
+// (filters the passive BLE scan by MAC prefix, defaults to the Medisana
+// E4:54:EB range below), then POST /scale/config {"mac":"E4:54:EB:.."}
+// sets it, no reflash required (see README).
 // #define SCALE_MAC_ADDRESS "E4:54:EB:XX:XX:XX"
 
 // Defaults target a Medisana BS440-family scale (BS410/BS430/BS440/
