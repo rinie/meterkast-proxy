@@ -13,10 +13,15 @@ struct MdnsEntry {
   uint16_t port;
 };
 
+struct MdnsServiceQuery {
+  const char* type;
+  const char* proto;
+};
+
 std::vector<MdnsEntry> lastResults;
 unsigned long lastQueryMs = 0;
-const char* serviceTypes[] = MDNS_SERVICE_TYPES;
-constexpr size_t SERVICE_TYPE_COUNT = sizeof(serviceTypes) / sizeof(serviceTypes[0]);
+MdnsServiceQuery serviceQueries[] = MDNS_SERVICE_TYPES;
+constexpr size_t SERVICE_TYPE_COUNT = sizeof(serviceQueries) / sizeof(serviceQueries[0]);
 
 // MDNS.queryService() blocks for up to its own internal timeout per call
 // -- querying every configured service type back to back means a real,
@@ -27,10 +32,11 @@ constexpr size_t SERVICE_TYPE_COUNT = sizeof(serviceTypes) / sizeof(serviceTypes
 void queryAllServiceTypes() {
   std::vector<MdnsEntry> results;
   for (size_t i = 0; i < SERVICE_TYPE_COUNT; i++) {
-    int count = MDNS.queryService(serviceTypes[i], MDNS_SERVICE_PROTO);
+    const MdnsServiceQuery& query = serviceQueries[i];
+    int count = MDNS.queryService(query.type, query.proto);
     for (int j = 0; j < count; j++) {
       results.push_back({
-        String(serviceTypes[i]) + "." + MDNS_SERVICE_PROTO,
+        String(query.type) + "." + query.proto,
         MDNS.hostname(j),
         // ESPmDNS's per-result IP accessor was renamed IP() -> address()
         // between arduino-esp32 core major versions 2.x and 3.x (real,

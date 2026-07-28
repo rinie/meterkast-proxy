@@ -28,9 +28,16 @@
 // mDNS has no wildcard "browse everything" query the way BLE scanning can
 // passively see any advertiser -- each service type has to be asked for
 // by name. Add whatever's relevant on your LAN; unknown/absent services
-// just return nothing, not an error.
-#define MDNS_SERVICE_TYPES { "_home-assistant", "_googlecast", "_hap", "_http" }
-#define MDNS_SERVICE_PROTO "_tcp"
+// just return nothing, not an error. Each entry is its own {type, proto}
+// pair (not one shared proto for all of them) since not everything is
+// _tcp -- Matter's commissionable-node service is _udp, for one.
+// _matter._tcp is operational (already-commissioned) Matter nodes;
+// _matterc._udp is commissionable nodes actively looking to be paired,
+// arguably the more useful one for discovery.
+#define MDNS_SERVICE_TYPES { \
+  {"_home-assistant", "_tcp"}, {"_googlecast", "_tcp"}, {"_hap", "_tcp"}, {"_http", "_tcp"}, \
+  {"_matter", "_tcp"}, {"_matterc", "_udp"} \
+}
 
 // How often the mDNS browser re-queries every configured service type.
 // BLE scanning is continuous/passive in the background and needs no
