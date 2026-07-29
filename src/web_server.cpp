@@ -4,6 +4,8 @@
 #include "mdns_browser.h"
 #include "gatt_session.h"
 #include "zigbee_scanner.h"
+#include "mija_thermometer.h"
+#include "matter_bridge.h"
 #include "wifi_setup.h"
 #include <WebServer.h>
 #include <WiFi.h>
@@ -22,6 +24,7 @@ void handleRoot() {
     "<style>body{font-family:system-ui,sans-serif;max-width:640px;margin:2rem auto;padding:0 1rem}"
     "a{color:#06c}</style></head><body>";
   html += "<h1>" DEVICE_HOSTNAME "</h1>";
+  html += "<p>meterkast-proxy " FIRMWARE_VERSION "</p>";
   html += "<p>Uptime: " + String(millis() / 1000) + "s &middot; ";
   html += "Free heap: " + String(ESP.getFreeHeap()) + " bytes &middot; ";
   html += "WiFi RSSI: " + String(WiFi.RSSI()) + " dBm</p>";
@@ -100,6 +103,102 @@ void handleGattSession() {
   server.send(200, "application/json", out);
 }
 
+// Discovery helper for the Xiaomi Mijia (ATC firmware) thermometers
+// matter_bridge.cpp bridges as Matter endpoints -- same reused
+// bleDevicesJsonByPrefix() as /scale/discover, just defaulting to the
+// Xiaomi/ATC MAC range instead of the Medisana one.
+void handleMijaDiscoverJson() {
+  String prefix = server.hasArg("prefix") ? server.arg("prefix") : "A4:C1:38";
+  server.send(200, "application/json", bleDevicesJsonByPrefix(prefix));
+}
+
+// mija_thermometer.h has a fixed number of slots (Matter endpoints can't
+// be added after Matter.begin() starts) -- ?slot= selects which one,
+// defaulting to 0.
+size_t mijaSlotArg() {
+  return server.hasArg("slot") ? static_cast<size_t>(server.arg("slot").toInt()) : 0;
+}
+
+// Decoded reading, independent of whether Matter commissioning is
+// working -- lets the ATC-firmware byte parsing (mija_thermometer.cpp)
+// be verified against real hardware on its own. {} if unconfigured or no
+// reading decoded yet, same "buffered, no live round trip" spirit as
+// /scale/read.
+void handleMijaReadJson() {
+  size_t slot = mijaSlotArg();
+  if (slot >= MIJA_SLOT_COUNT || !mijaSlotHasReading(slot)) {
+    server.send(200, "application/json", "{}");
+    return;
+  }
+  JsonDocument doc;
+  doc["temperatureC"] = mijaSlotTemperatureC(slot);
+  doc["humidityPercent"] = mijaSlotHumidityPercent(slot);
+  doc["ageMs"] = mijaSlotAgeMs(slot);
+  String out;
+  serializeJson(doc, out);
+  server.send(200, "application/json", out);
+}
+
+void handleMijaConfigGet() {
+  size_t slot = mijaSlotArg();
+  if (slot >= MIJA_SLOT_COUNT) {
+    server.send(400, "application/json", "{\"error\":\"slot out of range\"}");
+    return;
+  }
+  String mac = mijaGetSlotMac(slot);
+  String json = mac.isEmpty() ? "{\"mac\":null}" : "{\"mac\":\"" + mac + "\"}";
+  server.send(200, "application/json", json);
+}
+
+// Runtime thermometer slot MAC configuration -- POST {"mac":"A4:C1:38:.."}
+// (optionally ?slot=1), persisted via Preferences (mija_thermometer.cpp),
+// no reflash required. Same validation/response shape as /scale/config.
+void handleMijaConfigPost() {
+  size_t slot = mijaSlotArg();
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, server.arg("plain"));
+  if (err || !doc["mac"].is<const char*>()) {
+    server.send(400, "application/json", "{\"error\":\"expected JSON body {\\\"mac\\\":\\\"XX:XX:XX:XX:XX:XX\\\"}\"}");
+    return;
+  }
+  String mac = doc["mac"].as<const char*>();
+  if (!mijaSetSlotMac(slot, mac)) {
+    server.send(400, "application/json", "{\"error\":\"invalid slot or malformed MAC\"}");
+    return;
+  }
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+// Matter's own BLE commissioning conflicts with ble_scanner.cpp's
+// continuous scan if both run at once (confirmed live: Matter.begin()
+// hangs indefinitely otherwise) -- so unlike every other feature here,
+// starting Matter is an on-demand action, not something that happens
+// automatically at boot. matterBridgeStartCommissioning() (matter_bridge.cpp)
+// pauses the BLE scan, starts the Matter stack, and arranges for the
+// scan to resume once Matter's own BLE usage ends. false (400) if
+// already started -- this is meant to be called once.
+void handleMatterCommissionPost() {
+  if (!matterBridgeStartCommissioning()) {
+    server.send(400, "application/json", "{\"error\":\"Matter already started\"}");
+    return;
+  }
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+// The manual pairing code/QR URL, so commissioning doesn't require
+// serial access -- real values (or "" on any build without Matter
+// support -- see platformio.ini).
+void handleMatterStatusJson() {
+  JsonDocument doc;
+  doc["started"] = matterBridgeIsStarted();
+  doc["commissioned"] = matterBridgeIsCommissioned();
+  doc["manualPairingCode"] = matterBridgeManualPairingCode();
+  doc["qrCodeUrl"] = matterBridgeOnboardingQrCodeUrl();
+  String out;
+  serializeJson(doc, out);
+  server.send(200, "application/json", out);
+}
+
 // Clears saved WiFi credentials and reboots -- the re-entry path into the
 // WiFiProvisioner captive portal (wifi_setup.cpp) for a device that's
 // already connected, without needing a physical button (this project is
@@ -119,6 +218,8 @@ void handleWifiReset() {
 // for this one small, fixed-shape endpoint.
 void handleStatusJson() {
   String json = "{";
+  json += "\"app\":\"meterkast-proxy\",";
+  json += "\"version\":\"" FIRMWARE_VERSION "\",";
   json += "\"uptimeMs\":" + String(millis()) + ",";
   json += "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",";
   json += "\"wifiRssi\":" + String(WiFi.RSSI()) + ",";
@@ -139,6 +240,12 @@ void webServerBegin() {
   server.on("/ble/discover", handleBleDiscoverJson);
   server.on("/gatt/session", HTTP_POST, handleGattSession);
   server.on("/wifi/reset", HTTP_POST, handleWifiReset);
+  server.on("/mija/discover", handleMijaDiscoverJson);
+  server.on("/mija/read", handleMijaReadJson);
+  server.on("/mija/config", HTTP_GET, handleMijaConfigGet);
+  server.on("/mija/config", HTTP_POST, handleMijaConfigPost);
+  server.on("/matter/commission", HTTP_POST, handleMatterCommissionPost);
+  server.on("/matter/status", handleMatterStatusJson);
   server.on("/status", handleStatusJson);
   server.begin();
   Serial.println("Web server started on port 80");

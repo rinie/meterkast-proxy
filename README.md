@@ -72,6 +72,16 @@ $env:PLATFORMIO_CORE_DIR = "<separate-path>"
 pio run -e esp32-c6-devkitc-1-zigbee -t upload --upload-port COMx
 ```
 
+...and an `esp32-c6-devkitc-1-matter` env, bridging two configurable
+Xiaomi Mijia (ATC-firmware) BLE thermometers as Matter
+temperature/humidity endpoints -- **known to build and boot fine but not
+to actually commission**, see
+[Known real limitations](#known-real-limitations-stated-not-hidden):
+```
+$env:PLATFORMIO_CORE_DIR = "<separate-path>"
+pio run -e esp32-c6-devkitc-1-matter -t upload --upload-port COMx
+```
+
 **Either way:**
 1. Copy `src/config.h.example` to `src/config.h`. `config.h` is
    gitignored — personal, never committed, the same treatment
@@ -105,8 +115,14 @@ pio run -e esp32-c6-devkitc-1-zigbee -t upload --upload-port COMx
 | `GET /scan/zigbee` | JSON array | `{panId, extendedPanId, channel, permitJoining, routerCapacity, endDeviceCapacity}` per nearby Zigbee network -- `esp32-c6-devkitc-1-zigbee` build only, `[]` on every other board/env, see below |
 | `GET /ble/discover?prefix=` | JSON array | Same shape as `/scan/ble`, filtered to addresses starting with `prefix` (default `E4:54:EB`) -- finds an unknown device's MAC without a dedicated active scan; empty `prefix` matches everything |
 | `POST /gatt/session` | JSON object | Generic BLE GATT read: body `{"address":"..","serviceUuid":"..","read":["charUuid",...]}`, connects, reads each listed characteristic, disconnects, returns `{"ok":true,"readings":{"charUuid":"hexbytes",...}}` or `{"ok":false,"error":".."}`. No device-specific knowledge here at all -- see below |
+| `GET /mija/discover?prefix=` | JSON array | Same shape as `/scan/ble`, filtered to addresses starting with `prefix` (default `A4:C1:38`, the Xiaomi/ATC range) -- finds a Mijia thermometer's MAC the same way `/ble/discover` does |
+| `GET /mija/read?slot=` | JSON object | `{temperatureC, humidityPercent, ageMs}` for that slot, decoded from its BLE advertisement (buffered, no live round trip), or `{}` if unconfigured/no reading yet -- verifiable independent of Matter commissioning |
+| `GET /mija/config?slot=` | JSON object | `{"mac":"A4:C1:38:.."}` or `{"mac":null}` -- the configured MAC for that thermometer slot (`esp32-c6-devkitc-1-matter` has 2 slots, default `?slot=0`) |
+| `POST /mija/config?slot=` | JSON object | Body `{"mac":"A4:C1:38:.."}` sets that slot's MAC at runtime (persisted to NVS, no reflash); `400` on a malformed address or out-of-range slot |
+| `POST /matter/commission` | JSON object | Starts the Matter stack (on demand, not automatic at boot -- see below); **currently hangs, known limitation** |
+| `GET /matter/status` | JSON object | `{started, commissioned, manualPairingCode, qrCodeUrl}` -- real values on `esp32-c6-devkitc-1-matter`, empty/false on every other build |
 | `POST /wifi/reset` | JSON object | Clears the saved WiFi credentials and reboots back into the setup captive portal -- see [Setup](#setup) |
-| `GET /status` | JSON object | compact health-check shape |
+| `GET /status` | JSON object | compact health-check shape, incl. `{"app":"meterkast-proxy","version":"<branch>@<hash>[+uncommitted],commit=<ts>,built=<ts>"}` -- confirms both that this is the proxy and exactly which build is running |
 
 ## Known real limitations (stated, not hidden)
 
@@ -130,17 +146,51 @@ pio run -e esp32-c6-devkitc-1-zigbee -t upload --upload-port COMx
   the C6's one 2.4GHz radio across BLE + WiFi + Zigbee via ESP-IDF's
   software coexistence scheduler, so scan cadence across all three may
   soften somewhat under concurrent load.
-- **Matter support is mDNS-only (Matter-over-WiFi), not a real Matter
-  stack.** `_matter._tcp` (operational nodes) and `_matterc._udp`
-  (commissionable nodes actively seeking pairing) are just two more
-  service types `mdns_browser.cpp` already knows how to browse -- no
-  commissioning, no accessory/controller role, nothing Matter-specific
-  beyond that. Matter-over-Thread devices (as opposed to Matter-over-WiFi)
-  aren't visible this way at all -- they'd need this device to join their
-  Thread mesh directly, out of scope here. A real Matter accessory or
-  controller role would need Espressif's `esp-matter` SDK, which is
-  ESP-IDF-native (not an Arduino library) and needs a completely separate
-  project/build system from this one.
+- **Matter discovery (via mDNS) works; being a real Matter accessory
+  doesn't, yet.** Two separate things:
+  - *Discovery*: `_matter._tcp` (operational nodes) and `_matterc._udp`
+    (commissionable nodes actively seeking pairing) are just two more
+    service types `mdns_browser.cpp` already knows how to browse, so
+    Matter-over-WiFi nodes show up in `/scan/mdns` on any board. This
+    works. Matter-over-Thread devices aren't visible this way -- they'd
+    need this device to join their Thread mesh directly, out of scope.
+  - *Accessory* (`esp32-c6-devkitc-1-matter`, arduino-esp32's built-in
+    `Matter` library -- real, not ESP-IDF-only the way this README
+    previously assumed): endpoint registration works fine
+    (`matterBridgeBegin()`, confirmed live -- both `MatterTemperatureSensor`
+    endpoints and both `MatterHumiditySensor` endpoints create cleanly),
+    and the device boots and serves HTTP normally. **`POST
+    /matter/commission` (which starts the actual Matter stack) hangs
+    indefinitely, confirmed live and not yet resolved.** Root cause,
+    pinned down with verbose (`CORE_DEBUG_LEVEL=5`) serial logging: after
+    `ble_scanner.cpp`'s continuous BLE scan is paused, Matter's own BLE
+    commissioning transport logs `NimBle host synced` -- the same message
+    NimBLE-Arduino's own init already logged once at boot -- then hangs
+    forever. This points to a structural conflict over the single shared
+    underlying NimBLE host stack between NimBLE-Arduino and Matter's BLE
+    transport, not a resolvable application-level timing/coexistence
+    issue (pausing/resuming the scan, which `matter_bridge.cpp` still
+    does, was the first fix attempted and did not help). Real fixes would
+    need either dropping BLE scanning entirely from this build (defeats
+    bridging the thermometers, the actual point), a deeper custom
+    integration sharing one NimBLE host between both roles, or disabling
+    Matter's BLE commissioning (`CONFIG_ENABLE_CHIPOBLE`) -- confirmed
+    hard-baked into the only precompiled `sdkconfig` this platform ships
+    for the C6 (checked both flash-mode variants), so that would need a
+    from-source ESP-IDF/`esp-matter` rebuild. None attempted. See
+    `matter_bridge.h`'s `matterBridgeStartCommissioning()` for the full
+    writeup.
+- **`mija_thermometer.cpp` decodes Xiaomi Mijia BLE thermometers,
+  real-verified against actual hardware** -- a device on this LAN
+  advertising under UUID `0xFE95` (Xiaomi's native MiBeacon protocol, not
+  either atc1441/pvvx `0x181A` format also supported) decoded to
+  `{"temperatureC":24.81,"humidityPercent":53.81}`, physically plausible
+  and stable across repeated polls. Encrypted MiBeacon frames aren't
+  decoded (would need a per-device bindkey this project has no way to
+  configure) -- that device's reading just never updates. A single
+  MiBeacon advertisement only ever carries one of {temperature,
+  humidity}, not both at once, so the two fields update independently as
+  the device round-robins which it reports.
 - **BLE scanning is continuous and passive/active** (NimBLE's own
   background task) — `MAX_TRACKED_DEVICES` (100, in `ble_scanner.cpp`)
   bounds memory by evicting the oldest-seen entry once full.
@@ -158,13 +208,18 @@ pio run -e esp32-c6-devkitc-1-zigbee -t upload --upload-port COMx
   installs use `NimBLEAdvertisedDeviceCallbacks`/`setAdvertisedDeviceCallbacks`
   instead — check your installed library version if `ble_scanner.cpp`
   doesn't compile as-is.
-- **No device-specific BLE knowledge lives in this firmware at all
-  anymore.** `POST /gatt/session` and `serviceData` on `/scan/ble` are
-  both fully generic; which real device a MAC belongs to, what its
-  service/characteristic UUIDs mean, and how to decode the bytes are
-  meterkast-dns's own playlist's job now (see the companion write-up in
-  that repo). This firmware doesn't know or care whether it's talking
-  to a thermometer, a scale, or anything else.
+- **The `m5stick-c`/generic-relay path has no device-specific BLE
+  knowledge at all.** `POST /gatt/session` and `serviceData` on
+  `/scan/ble` are both fully generic; which real device a MAC belongs
+  to, what its service/characteristic UUIDs mean, and how to decode the
+  bytes are meterkast-dns's own playlist's job now (see the companion
+  write-up in that repo). This path doesn't know or care whether it's
+  talking to a thermometer, a scale, or anything else. The
+  `esp32-c6-devkitc-1-matter` env is a deliberate exception to that rule
+  -- `mija_thermometer.cpp` bakes in real Xiaomi Mijia decode logic
+  directly, because a Matter accessory has to expose an already-decoded
+  value at the endpoint itself, with no meterkast-dns in the loop at
+  all; see that section below.
 - **`/gatt/session` is read-only.** Connect, read, disconnect -- no
   subscribe-to-indications or write-a-command support yet. Covers
   simple connect-and-read devices (most standard Bluetooth SIG

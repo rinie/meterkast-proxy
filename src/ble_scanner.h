@@ -25,3 +25,12 @@ size_t bleDeviceCount();
 // discovery helper for finding an unknown-up-front device's MAC (e.g.
 // GET /ble/discover) without a dedicated active scan.
 String bleDevicesJsonByPrefix(const String& prefix);
+
+// Stops/restarts the scan on demand -- needed once, for Matter's own BLE
+// commissioning (matter_bridge.cpp): NimBLE-Arduino's continuous central
+// scan and Matter's BLE peripheral/GATT server for pairing both want the
+// same radio, and (confirmed live) Matter.begin() hangs indefinitely
+// rather than degrading gracefully if the scan is still running. No
+// other caller needs this -- the scan runs continuously otherwise.
+void bleScannerPause();
+void bleScannerResume();

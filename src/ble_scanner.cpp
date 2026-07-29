@@ -1,4 +1,5 @@
 #include "ble_scanner.h"
+#include "mija_thermometer.h"
 #include <NimBLEDevice.h>
 #include <ArduinoJson.h>  // assumes ArduinoJson v7 (JsonDocument, no fixed capacity) -- v6's DynamicJsonDocument(size) API differs
 #include <map>
@@ -87,6 +88,21 @@ class ScanCallbacks : public NimBLEScanCallbacks {
       if (!name.empty()) it->second.name = name;
       for (const auto& [uuid, data] : serviceData) it->second.serviceData[uuid] = data;
     }
+
+    // Xiaomi Mijia thermometers broadcast their reading directly in
+    // Service Data, under one of two possible UUIDs depending on
+    // firmware/config -- see mija_thermometer.h. Forwarded here rather
+    // than run as a second scan, since NimBLE only supports one
+    // registered scan callback. No-op for any device not configured as a
+    // mija_thermometer.cpp slot.
+    for (uint8_t i = 0; i < device->getServiceDataCount(); i++) {
+      NimBLEUUID uuid = device->getServiceDataUUID(i);
+      if (uuid == NimBLEUUID(static_cast<uint16_t>(0x181A))) {
+        mijaHandleAdvertisement(String(address.c_str()), 0x181A, device->getServiceData(i));
+      } else if (uuid == NimBLEUUID(static_cast<uint16_t>(0xFE95))) {
+        mijaHandleAdvertisement(String(address.c_str()), 0xFE95, device->getServiceData(i));
+      }
+    }
   }
 };
 
@@ -107,6 +123,14 @@ void bleScannerBegin() {
 
 void bleScannerLoop() {
   // Intentionally empty -- see the header comment.
+}
+
+void bleScannerPause() {
+  NimBLEDevice::getScan()->stop();
+}
+
+void bleScannerResume() {
+  NimBLEDevice::getScan()->start(0, false);
 }
 
 size_t bleDeviceCount() {
