@@ -24,18 +24,25 @@
 #include "src/mdns_browser.h"
 #include "src/scale_reader.h"
 #include "src/zigbee_scanner.h"
+#include "src/mija_thermometer.h"
+#include "src/matter_bridge.h"
 #include "src/web_server.h"
 
 void setup() {
   Serial.begin(115200);
   delay(200);
-  Serial.println("\nmeterkast-dns ESP32 proxy starting...");
+  Serial.println("\nmeterkast-dns ESP32 proxy starting... (" FIRMWARE_VERSION ")");
 
+  mijaThermometerBegin();
   wifiSetupBegin();
   bleScannerBegin();
   mdnsBrowserBegin();
   scaleReaderBegin();
   zigbeeScannerBegin();
+  // Only registers Matter endpoints -- starting the Matter stack itself
+  // is a separate, on-demand step (POST /matter/commission), see
+  // matter_bridge.h for why.
+  matterBridgeBegin();
   webServerBegin();
 
   Serial.println("Ready.");
@@ -47,5 +54,6 @@ void loop() {
   mdnsBrowserLoop();
   scaleReaderLoop();
   zigbeeScannerLoop();
+  matterBridgeLoop();
   webServerLoop();
 }
