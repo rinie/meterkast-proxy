@@ -203,6 +203,32 @@ pio run -e esp32-c6-devkitc-1-matter -t upload --upload-port COMx
   `MDNS_QUERY_INTERVAL_MS`) — this pauses the main Arduino loop (so the
   webserver/mDNS timer stall briefly) but not BLE scanning, which runs in
   its own separate task.
+- **The `m5stick-c` env's mDNS *querying* reports zero results, on real
+  hardware, confirmed not fixed by rebooting.** `GET /scan/mdns` returns
+  `[]` and `GET /status`'s `mdnsDeviceCount` stays `0` from the very
+  first query after boot (not a gradual degradation -- confirmed live
+  immediately after a real hardware reset, `uptimeMs` under 15 seconds).
+  WiFi, BLE, and the HTTP server all work normally on the same board at
+  the same time, and `wifi_setup.cpp`'s own `MDNS.begin(DEVICE_HOSTNAME)`
+  call (the *responder*, advertising this device's own name -- a
+  separate mechanism from `mdns_browser.cpp`'s own *querying*) succeeds,
+  confirmed by a second, real `esp32-c6-devkitc-1` board correctly seeing
+  this board's own hostname in *its* `/scan/mdns`. So this is
+  specifically the querying side failing to receive any answers, most
+  likely the WiFi station interface not joining the mDNS multicast group
+  (`224.0.0.251`) at the IGMP level -- a real, documented class of issue
+  in some `arduino-esp32` core versions, plausible here since `m5stick-c`
+  builds against the official `platform-espressif32@6.13.0` core while
+  the working `esp32-c6-devkitc-1` envs build against a completely
+  different chip and the `pioarduino` fork's own core. Not yet root-caused
+  further (would need verbose `CORE_DEBUG_LEVEL=5` serial logging, the
+  same technique that pinned down the Matter/BLE coexistence issue
+  above) -- left as a known, real, unresolved limitation specific to this
+  one board/core combination, not something in this project's own
+  `mdns_browser.cpp` logic, which is confirmed correct. Practical
+  workaround on the meterkast-dns side: put a working proxy board first
+  in `METERKAST_PROXY_HOSTS`, since mDNS resolution for already-claimed
+  entries only ever queries the first configured proxy.
 - **NimBLE-Arduino API version**: written against the current v2.x
   callback API (`NimBLEScanCallbacks`/`setScanCallbacks`). Older v1.x
   installs use `NimBLEAdvertisedDeviceCallbacks`/`setAdvertisedDeviceCallbacks`
