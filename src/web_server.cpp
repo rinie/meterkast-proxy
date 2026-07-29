@@ -2,7 +2,7 @@
 #include "config.h"
 #include "ble_scanner.h"
 #include "mdns_browser.h"
-#include "scale_reader.h"
+#include "gatt_session.h"
 #include "zigbee_scanner.h"
 #include "mija_thermometer.h"
 #include "matter_bridge.h"
@@ -11,6 +11,7 @@
 #include <WiFi.h>
 #include <ArduinoJson.h>
 #include <Preferences.h>
+#include <vector>
 
 namespace {
 
@@ -35,11 +36,6 @@ void handleRoot() {
   html += "<p>" + String(mdnsDeviceCount()) + " entr" + String(mdnsDeviceCount() == 1 ? "y" : "ies") +
           " seen. <a href=\"/scan/mdns\">raw JSON</a></p>";
 
-  if (scaleHasReading()) {
-    html += "<h2>Scale</h2>";
-    html += "<p>Last reading: <a href=\"/scale/read\">raw JSON</a></p>";
-  }
-
   html += "<p><a href=\"/status\">/status</a> (compact JSON, for a health check)</p>";
   html += "</body></html>";
   server.send(200, "text/html", html);
@@ -60,45 +56,51 @@ void handleZigbeeJson() {
   server.send(200, "application/json", zigbeeNetworksJson());
 }
 
-// Always instant -- the buffered cache from scale_reader.cpp's own
-// background read cycle, never a live BLE round trip on the request
-// path. {} (empty object, not an error) if no scale is configured or
-// no successful read has happened yet.
-void handleScaleJson() {
-  server.send(200, "application/json", scaleReadingJson());
-}
-
-// Discovery helper: the scale's MAC isn't known up front, so this filters
-// the already-running passive BLE scan (ble_scanner.cpp) by address
-// prefix instead of requiring a hardcoded guess. Defaults to the
-// Medisana BS440-family range; override with ?prefix= for a different
-// scale/device entirely.
-void handleScaleDiscoverJson() {
+// Discovery helper: a device's MAC often isn't known up front, so this
+// filters the already-running passive BLE scan (ble_scanner.cpp) by
+// address prefix instead of requiring a hardcoded guess. Not specific to
+// any one device (was named /scale/discover once, before this project
+// moved every device-specific decision off this firmware and into
+// meterkast-dns's own playlist -- see README); defaults to the Medisana
+// BS440-family range purely because that's the device this was first
+// built for, override with ?prefix= for anything else.
+void handleBleDiscoverJson() {
   String prefix = server.hasArg("prefix") ? server.arg("prefix") : "E4:54:EB";
   server.send(200, "application/json", bleDevicesJsonByPrefix(prefix));
 }
 
-void handleScaleConfigGet() {
-  String mac = scaleGetMac();
-  String json = mac.isEmpty() ? "{\"mac\":null}" : "{\"mac\":\"" + mac + "\"}";
-  server.send(200, "application/json", json);
-}
-
-// Runtime scale MAC configuration -- POST {"mac":"E4:54:EB:.."}, persisted
-// via Preferences (scale_reader.cpp), no reflash required.
-void handleScaleConfigPost() {
+// Generic BLE GATT read session -- connect to `address`, read whatever
+// characteristics under `serviceUuid` are listed in `read`, disconnect.
+// No device-specific knowledge here or in gatt_session.cpp at all: every
+// UUID comes from the request body, which meterkast-dns builds from its
+// own playlist. Read-only for now -- see gatt_session.h.
+void handleGattSession() {
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, server.arg("plain"));
-  if (err || !doc["mac"].is<const char*>()) {
-    server.send(400, "application/json", "{\"error\":\"expected JSON body {\\\"mac\\\":\\\"XX:XX:XX:XX:XX:XX\\\"}\"}");
+  if (err || !doc["address"].is<const char*>() || !doc["serviceUuid"].is<const char*>() || !doc["read"].is<JsonArray>()) {
+    server.send(
+        400, "application/json",
+        "{\"ok\":false,\"error\":\"expected JSON body {\\\"address\\\":\\\"..\\\",\\\"serviceUuid\\\":\\\"..\\\",\\\"read\\\":[\\\"..\\\"]}\"}");
     return;
   }
-  String mac = doc["mac"].as<const char*>();
-  if (!scaleSetMac(mac)) {
-    server.send(400, "application/json", "{\"error\":\"malformed MAC, expected XX:XX:XX:XX:XX:XX\"}");
-    return;
+
+  std::vector<String> characteristicUuids;
+  for (JsonVariant v : doc["read"].as<JsonArray>()) characteristicUuids.push_back(v.as<const char*>());
+
+  GattSessionResult result =
+      gattSessionExecute(doc["address"].as<const char*>(), doc["serviceUuid"].as<const char*>(), characteristicUuids);
+
+  JsonDocument response;
+  response["ok"] = result.ok;
+  if (!result.ok) {
+    response["error"] = result.error;
+  } else {
+    JsonObject readings = response["readings"].to<JsonObject>();
+    for (const GattReading& reading : result.readings) readings[reading.characteristicUuid] = reading.hex;
   }
-  server.send(200, "application/json", "{\"ok\":true}");
+  String out;
+  serializeJson(response, out);
+  server.send(200, "application/json", out);
 }
 
 // Discovery helper for the Xiaomi Mijia (ATC firmware) thermometers
@@ -235,10 +237,8 @@ void webServerBegin() {
   server.on("/scan/ble", handleBleJson);
   server.on("/scan/mdns", handleMdnsJson);
   server.on("/scan/zigbee", handleZigbeeJson);
-  server.on("/scale/read", handleScaleJson);
-  server.on("/scale/discover", handleScaleDiscoverJson);
-  server.on("/scale/config", HTTP_GET, handleScaleConfigGet);
-  server.on("/scale/config", HTTP_POST, handleScaleConfigPost);
+  server.on("/ble/discover", handleBleDiscoverJson);
+  server.on("/gatt/session", HTTP_POST, handleGattSession);
   server.on("/wifi/reset", HTTP_POST, handleWifiReset);
   server.on("/mija/discover", handleMijaDiscoverJson);
   server.on("/mija/read", handleMijaReadJson);

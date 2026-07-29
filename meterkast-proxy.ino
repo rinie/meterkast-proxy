@@ -22,7 +22,6 @@
 #include "src/wifi_setup.h"
 #include "src/ble_scanner.h"
 #include "src/mdns_browser.h"
-#include "src/scale_reader.h"
 #include "src/zigbee_scanner.h"
 #include "src/mija_thermometer.h"
 #include "src/matter_bridge.h"
@@ -37,7 +36,6 @@ void setup() {
   wifiSetupBegin();
   bleScannerBegin();
   mdnsBrowserBegin();
-  scaleReaderBegin();
   zigbeeScannerBegin();
   // Only registers Matter endpoints -- starting the Matter stack itself
   // is a separate, on-demand step (POST /matter/commission), see
@@ -52,7 +50,6 @@ void loop() {
   wifiSetupLoop();
   bleScannerLoop();
   mdnsBrowserLoop();
-  scaleReaderLoop();
   zigbeeScannerLoop();
   matterBridgeLoop();
   webServerLoop();

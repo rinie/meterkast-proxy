@@ -110,14 +110,12 @@ pio run -e esp32-c6-devkitc-1-matter -t upload --upload-port COMx
 | Path | Shape | Notes |
 |---|---|---|
 | `GET /` | HTML | Tasmota-style status page: uptime, free heap, WiFi RSSI, device counts |
-| `GET /scan/ble` | JSON array | `{address, name?, rssi, ageMs}` per device seen, continuous background scan |
+| `GET /scan/ble` | JSON array | `{address, name?, rssi, ageMs, serviceData?}` per device seen, continuous background scan. `serviceData` (present only when the advertisement carries any) is `{serviceUuid: hex, ...}` raw bytes -- generic capture, decoding is meterkast-dns's job (see below) |
 | `GET /scan/mdns` | JSON array | `{serviceType, hostname, ip, port}` per entry, refreshed every `MDNS_QUERY_INTERVAL_MS` -- includes Matter-over-WiFi nodes if `_matter`/`_matterc` are in `MDNS_SERVICE_TYPES` (the default `config.h.example` already has both) |
 | `GET /scan/zigbee` | JSON array | `{panId, extendedPanId, channel, permitJoining, routerCapacity, endDeviceCapacity}` per nearby Zigbee network -- `esp32-c6-devkitc-1-zigbee` build only, `[]` on every other board/env, see below |
-| `GET /scale/read` | JSON object | `{weightKg, ageMs}` buffered (never a live BLE round trip), or `{}` if no scale MAC is configured or no read has succeeded yet -- see below |
-| `GET /scale/discover?prefix=` | JSON array | Same shape as `/scan/ble`, filtered to addresses starting with `prefix` (default `E4:54:EB`, the Medisana range) -- finds the scale's MAC without hardcoding a guess; step on the scale, then poll this |
-| `GET /scale/config` | JSON object | `{"mac":"E4:54:EB:.."}` or `{"mac":null}` -- the currently configured scale MAC |
-| `POST /scale/config` | JSON object | Body `{"mac":"E4:54:EB:.."}` sets the scale MAC at runtime (persisted to NVS, no reflash); `400` on a malformed address |
-| `GET /mija/discover?prefix=` | JSON array | Same shape as `/scan/ble`, filtered to addresses starting with `prefix` (default `A4:C1:38`, the Xiaomi/ATC range) -- finds a Mijia thermometer's MAC the same way `/scale/discover` does |
+| `GET /ble/discover?prefix=` | JSON array | Same shape as `/scan/ble`, filtered to addresses starting with `prefix` (default `E4:54:EB`) -- finds an unknown device's MAC without a dedicated active scan; empty `prefix` matches everything |
+| `POST /gatt/session` | JSON object | Generic BLE GATT read: body `{"address":"..","serviceUuid":"..","read":["charUuid",...]}`, connects, reads each listed characteristic, disconnects, returns `{"ok":true,"readings":{"charUuid":"hexbytes",...}}` or `{"ok":false,"error":".."}`. No device-specific knowledge here at all -- see below |
+| `GET /mija/discover?prefix=` | JSON array | Same shape as `/scan/ble`, filtered to addresses starting with `prefix` (default `A4:C1:38`, the Xiaomi/ATC range) -- finds a Mijia thermometer's MAC the same way `/ble/discover` does |
 | `GET /mija/read?slot=` | JSON object | `{temperatureC, humidityPercent, ageMs}` for that slot, decoded from its BLE advertisement (buffered, no live round trip), or `{}` if unconfigured/no reading yet -- verifiable independent of Matter commissioning |
 | `GET /mija/config?slot=` | JSON object | `{"mac":"A4:C1:38:.."}` or `{"mac":null}` -- the configured MAC for that thermometer slot (`esp32-c6-devkitc-1-matter` has 2 slots, default `?slot=0`) |
 | `POST /mija/config?slot=` | JSON object | Body `{"mac":"A4:C1:38:.."}` sets that slot's MAC at runtime (persisted to NVS, no reflash); `400` on a malformed address or out-of-range slot |
@@ -210,21 +208,26 @@ pio run -e esp32-c6-devkitc-1-matter -t upload --upload-port COMx
   installs use `NimBLEAdvertisedDeviceCallbacks`/`setAdvertisedDeviceCallbacks`
   instead — check your installed library version if `ble_scanner.cpp`
   doesn't compile as-is.
-- **`/scale/read` targets a Medisana BS440-family scale (BS410/BS430/
-  BS440/BS444) by default** — this device has no standard Bluetooth SIG
-  weight-scale profile at all; every UUID and the trigger command it
-  needs come from community reverse-engineering (openScale wiki,
-  `keptenkurk/BS440`, `ha-medisana-scale`, cross-referenced across all
-  three, not an official spec). The protocol itself is also more
-  involved than a simple read: subscribe to indications on three
-  characteristics, write a trigger command to a fourth, then wait for
-  the weight measurement to arrive asynchronously as an indication (see
-  `scale_reader.cpp` for the full writeup). Only the weight field is
-  decoded — body composition (fat/water/muscle/bone %, present in the
-  same feature-characteristic packet this already subscribes to) is
-  real, parked follow-up work. For a different scale entirely, override
-  every `SCALE_*` UUID/command in `config.h` and expect to reverse-engineer
-  its own protocol from scratch. Real-build-verified (compiles clean,
-  confirmed against the real installed NimBLE-Arduino 2.5.0 headers,
-  including its real `subscribe()`/`writeValue()` signatures) but not
-  yet tested against the actual physical scale.
+- **The `m5stick-c`/generic-relay path has no device-specific BLE
+  knowledge at all.** `POST /gatt/session` and `serviceData` on
+  `/scan/ble` are both fully generic; which real device a MAC belongs
+  to, what its service/characteristic UUIDs mean, and how to decode the
+  bytes are meterkast-dns's own playlist's job now (see the companion
+  write-up in that repo). This path doesn't know or care whether it's
+  talking to a thermometer, a scale, or anything else. The
+  `esp32-c6-devkitc-1-matter` env is a deliberate exception to that rule
+  -- `mija_thermometer.cpp` bakes in real Xiaomi Mijia decode logic
+  directly, because a Matter accessory has to expose an already-decoded
+  value at the endpoint itself, with no meterkast-dns in the loop at
+  all; see that section below.
+- **`/gatt/session` is read-only.** Connect, read, disconnect -- no
+  subscribe-to-indications or write-a-command support yet. Covers
+  simple connect-and-read devices (most standard Bluetooth SIG
+  profiles, many GATT thermometers) but not a device whose measurement
+  arrives asynchronously after writing a trigger command (a Medisana
+  BS440-family scale, previously handled by this firmware directly in
+  a now-removed `scale_reader.cpp` -- real, working code, reverted to
+  this generic-relay design instead once it became clear a second
+  device needed protocol logic duplicated in C++ too). Real, planned
+  follow-up, not abandoned -- extending the relay to support
+  subscribe/write is additive to this same endpoint, not a redesign.

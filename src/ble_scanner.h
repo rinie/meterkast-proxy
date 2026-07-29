@@ -10,17 +10,20 @@ void bleScannerLoop();
 
 // A JSON array of every device seen since boot (bounded, oldest evicted
 // once full -- see MAX_TRACKED_DEVICES in the .cpp): [{address, name?,
-// rssi, ageMs}, ...]. Mirrors the shape meterkast-dns's own
-// unclaimed*Devices() functions already produce on the Node side, so the
-// eventual esp32-proxy-adapter.js there is a straight fetch+map, the same
-// pattern as dirigera-adapter.js.
+// rssi, ageMs, serviceData?}, ...]. serviceData (present only when the
+// device's advertisement actually carries any) is {serviceUuid: hex,
+// ...} raw bytes, generic capture with no assumption about what any of
+// it means -- decoding is meterkast-dns's playlist-driven job now, not
+// firmware's. Mirrors the shape meterkast-dns's own unclaimed*Devices()
+// functions already produce on the Node side, so proxy-adapter.js there
+// is a straight fetch+map, the same pattern as dirigera-adapter.js.
 String bleDevicesJson();
 size_t bleDeviceCount();
 
 // Same shape as bleDevicesJson(), filtered to addresses starting with
 // prefix (case-insensitive; empty prefix matches everything). A
 // discovery helper for finding an unknown-up-front device's MAC (e.g.
-// GET /scale/discover) without a dedicated active scan.
+// GET /ble/discover) without a dedicated active scan.
 String bleDevicesJsonByPrefix(const String& prefix);
 
 // Stops/restarts the scan on demand -- needed once, for Matter's own BLE
