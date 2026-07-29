@@ -44,36 +44,11 @@
 // equivalent interval.
 #define MDNS_QUERY_INTERVAL_MS 30000
 
-// Optional one-time seed for the scale's BLE MAC (a single GATT device --
-// a weight scale -- actively connected to and read on an interval,
-// buffering the last good result). Like WIFI_SSID/PASSWORD above, this
-// isn't required: leave it undefined and configure the MAC at runtime
-// instead -- GET /scale/discover while stepping on the scale finds it
-// (filters the passive BLE scan by MAC prefix, defaults to the Medisana
-// E4:54:EB range below), then POST /scale/config {"mac":"E4:54:EB:.."}
-// sets it, no reflash required (see README).
-// #define SCALE_MAC_ADDRESS "E4:54:EB:XX:XX:XX"
-
-// Defaults target a Medisana BS440-family scale (BS410/BS430/BS440/
-// BS444 -- same protocol across all of them) if left undefined. This
-// device has no standard Bluetooth SIG weight-scale profile at all --
-// every UUID/command below is reverse-engineered (openScale wiki,
-// keptenkurk/BS440, ha-medisana-scale, cross-referenced, not an
-// official spec). Override every one of these for a different scale
-// entirely -- see scale_reader.cpp for the full protocol writeup.
-// #define SCALE_SERVICE_UUID "000078b2-0000-1000-8000-00805f9b34fb"
-// #define SCALE_WEIGHT_CHARACTERISTIC_UUID "00008a21-0000-1000-8000-00805f9b34fb"
-// #define SCALE_FEATURE_CHARACTERISTIC_UUID "00008a22-0000-1000-8000-00805f9b34fb"
-// #define SCALE_CUSTOM5_CHARACTERISTIC_UUID "00008a82-0000-1000-8000-00805f9b34fb"
-// #define SCALE_CMD_CHARACTERISTIC_UUID "00008a81-0000-1000-8000-00805f9b34fb"
-// #define SCALE_TRIGGER_COMMAND { 0x02, 0x7b, 0x7b, 0xf6, 0x0d }
-
-// How often to run a real connect/subscribe/trigger/read cycle against
-// the scale. Defaults to 30000 if left undefined.
-// #define SCALE_READ_INTERVAL_MS 30000
-
-// How long to wait for the weight indication to arrive after writing
-// the trigger command before giving up on that cycle (this device's
-// measurement is asynchronous, not a direct reply). Defaults to 8000
-// if left undefined.
-// #define SCALE_INDICATION_TIMEOUT_MS 8000
+// No device-specific BLE config lives here anymore -- GATT reads
+// (POST /gatt/session) and raw advertisement service-data capture
+// (the serviceData field on GET /scan/ble) are both fully generic and
+// driven entirely by the request/whatever's broadcasting, never
+// compiled in. Which real device a MAC address belongs to, which
+// characteristics/service-data mean what, and how to decode them are
+// meterkast-dns's own playlist's job now, not firmware's -- see
+// gatt_session.h and README.md.

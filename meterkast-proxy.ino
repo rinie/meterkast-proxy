@@ -22,7 +22,6 @@
 #include "src/wifi_setup.h"
 #include "src/ble_scanner.h"
 #include "src/mdns_browser.h"
-#include "src/scale_reader.h"
 #include "src/zigbee_scanner.h"
 #include "src/web_server.h"
 
@@ -34,7 +33,6 @@ void setup() {
   wifiSetupBegin();
   bleScannerBegin();
   mdnsBrowserBegin();
-  scaleReaderBegin();
   zigbeeScannerBegin();
   webServerBegin();
 
@@ -45,7 +43,6 @@ void loop() {
   wifiSetupLoop();
   bleScannerLoop();
   mdnsBrowserLoop();
-  scaleReaderLoop();
   zigbeeScannerLoop();
   webServerLoop();
 }

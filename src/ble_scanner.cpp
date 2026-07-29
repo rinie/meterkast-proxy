@@ -17,7 +17,29 @@ struct SeenDevice {
   std::string name;
   int rssi;
   unsigned long lastSeenMs;
+  // Raw BLE advertisement Service Data AD structures, keyed by the
+  // service UUID's own string form -- generic capture, no assumption
+  // about what any of these bytes mean (that's meterkast-dns's job now,
+  // not firmware's -- see README). Populated whenever the advertisement
+  // that updates this entry carries any; not cleared on a later
+  // advertisement that happens not to repeat it, same "keep the last
+  // real value seen" treatment `name` already gets below.
+  std::map<std::string, std::string> serviceData;
 };
+
+// Raw bytes -> lowercase hex, for JSON transport (JSON has no byte-string
+// type). Plain and dependency-free -- this is the only place in this
+// file that needs it.
+String toHex(const std::string& raw) {
+  static const char* digits = "0123456789abcdef";
+  String out;
+  out.reserve(raw.size() * 2);
+  for (unsigned char b : raw) {
+    out += digits[b >> 4];
+    out += digits[b & 0x0f];
+  }
+  return out;
+}
 
 // Capped so a long scan session near a busy area (offices, apartment
 // blocks) can't grow this without bound -- oldest entry evicted once
@@ -42,17 +64,28 @@ class ScanCallbacks : public NimBLEScanCallbacks {
     std::string name = device->haveName() ? device->getName() : "";
     int rssi = device->getRSSI();
 
+    std::map<std::string, std::string> serviceData;
+    if (device->haveServiceData()) {
+      uint8_t count = device->getServiceDataCount();
+      for (uint8_t i = 0; i < count; i++) {
+        serviceData[device->getServiceDataUUID(i).toString()] = device->getServiceData(i);
+      }
+    }
+
     auto it = seenDevices.find(address);
     if (it == seenDevices.end()) {
       evictOldestIfFull();
-      seenDevices[address] = {name, rssi, millis()};
+      seenDevices[address] = {name, rssi, millis(), serviceData};
     } else {
       it->second.rssi = rssi;
       it->second.lastSeenMs = millis();
       // A device's name-carrying advertisement/scan-response doesn't fire
       // every time -- keep whatever name was last seen rather than
-      // clearing it back to blank.
+      // clearing it back to blank. Same treatment for service data: a
+      // BTHome-style advertiser resends it on (close to) every
+      // advertisement anyway, but there's no reason to require that.
       if (!name.empty()) it->second.name = name;
+      for (const auto& [uuid, data] : serviceData) it->second.serviceData[uuid] = data;
     }
   }
 };
@@ -103,6 +136,12 @@ String serializeSeenDevices(const String& prefix) {
     if (!device.name.empty()) obj["name"] = device.name;
     obj["rssi"] = device.rssi;
     obj["ageMs"] = now - device.lastSeenMs;
+    if (!device.serviceData.empty()) {
+      JsonObject serviceDataObj = obj["serviceData"].to<JsonObject>();
+      for (const auto& [uuid, data] : device.serviceData) {
+        serviceDataObj[uuid] = toHex(data);
+      }
+    }
   }
   String out;
   serializeJson(doc, out);
