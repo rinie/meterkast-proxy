@@ -114,7 +114,7 @@ pio run -e esp32-c6-devkitc-1-matter -t upload --upload-port COMx
 | `GET /scan/mdns` | JSON array | `{serviceType, hostname, ip, port}` per entry, refreshed every `MDNS_QUERY_INTERVAL_MS` -- includes Matter-over-WiFi nodes if `_matter`/`_matterc` are in `MDNS_SERVICE_TYPES` (the default `config.h.example` already has both) |
 | `GET /scan/zigbee` | JSON array | `{panId, extendedPanId, channel, permitJoining, routerCapacity, endDeviceCapacity}` per nearby Zigbee network -- `esp32-c6-devkitc-1-zigbee` build only, `[]` on every other board/env, see below |
 | `GET /ble/discover?prefix=` | JSON array | Same shape as `/scan/ble`, filtered to addresses starting with `prefix` (default `E4:54:EB`) -- finds an unknown device's MAC without a dedicated active scan; empty `prefix` matches everything |
-| `POST /gatt/session` | JSON object | Generic BLE GATT read: body `{"address":"..","serviceUuid":"..","read":["charUuid",...]}`, connects, reads each listed characteristic, disconnects, returns `{"ok":true,"readings":{"charUuid":"hexbytes",...}}` or `{"ok":false,"error":".."}`. No device-specific knowledge here at all -- see below |
+| `POST /gatt/session` | JSON object | Generic BLE GATT session: body `{"address":"..","serviceUuid":"..","write":{"characteristicUuid":"..","hex":"..","delayMs":..} (optional),"read":["charUuid",...]}`. Connects; if `write` is given, writes those bytes to that characteristic and waits `delayMs` before continuing (a hard error if that characteristic is missing/not writable, or the write itself fails); reads each listed characteristic; disconnects. Returns `{"ok":true,"readings":{"charUuid":"hexbytes",...}}` or `{"ok":false,"error":".."}`. No device-specific knowledge here at all -- see below |
 | `GET /mija/discover?prefix=` | JSON array | Same shape as `/scan/ble`, filtered to addresses starting with `prefix` (default `A4:C1:38`, the Xiaomi/ATC range) -- finds a Mijia thermometer's MAC the same way `/ble/discover` does |
 | `GET /mija/read?slot=` | JSON object | `{temperatureC, humidityPercent, ageMs}` for that slot, decoded from its BLE advertisement (buffered, no live round trip), or `{}` if unconfigured/no reading yet -- verifiable independent of Matter commissioning |
 | `GET /mija/config?slot=` | JSON object | `{"mac":"A4:C1:38:.."}` or `{"mac":null}` -- the configured MAC for that thermometer slot (`esp32-c6-devkitc-1-matter` has 2 slots, default `?slot=0`) |
@@ -220,14 +220,38 @@ pio run -e esp32-c6-devkitc-1-matter -t upload --upload-port COMx
   directly, because a Matter accessory has to expose an already-decoded
   value at the endpoint itself, with no meterkast-dns in the loop at
   all; see that section below.
-- **`/gatt/session` is read-only.** Connect, read, disconnect -- no
-  subscribe-to-indications or write-a-command support yet. Covers
-  simple connect-and-read devices (most standard Bluetooth SIG
-  profiles, many GATT thermometers) but not a device whose measurement
-  arrives asynchronously after writing a trigger command (a Medisana
-  BS440-family scale, previously handled by this firmware directly in
-  a now-removed `scale_reader.cpp` -- real, working code, reverted to
-  this generic-relay design instead once it became clear a second
-  device needed protocol logic duplicated in C++ too). Real, planned
-  follow-up, not abandoned -- extending the relay to support
-  subscribe/write is additive to this same endpoint, not a redesign.
+- **`/gatt/session` supports one optional write-then-read step, still no
+  subscribe/wait-for-indication.** An optional `write` object
+  (`{"characteristicUuid":"..","hex":"..","delayMs":..}`) writes a
+  trigger value to one characteristic and waits the given delay before
+  the read loop runs -- motivated by a real, common device shape: a
+  Xiaomi Mi Flora plant sensor's real-time-data characteristic reads
+  back stale/default values until you write `0xA01F` to its mode-switch
+  characteristic first. **Real-verified only at the mechanism level, not
+  yet against a plausible Mi Flora reading**: flashed to the real
+  M5StickC and round-tripped once against a real Mi Flora sensor
+  (`c4:7c:8d:65:d2:d3`) -- the write succeeded, both requested
+  characteristics came back (`ok:true`), proving the write-then-read
+  plumbing itself works end to end. The actual bytes read back
+  (`aabbccddeeff99887766000000000000`) don't look like real sensor data
+  though -- decoded against the widely-documented community byte layout
+  they'd imply a physically impossible ~4804°C, so either this specific
+  characteristic needs a longer settle time, a notification/CCCD
+  subscription first (some peripherals need that before a direct read
+  reflects triggered data, a nuance this endpoint doesn't support yet),
+  or the byte layout assumed for this exact hardware revision is wrong.
+  Two follow-up connection attempts both failed outright
+  (`{"ok":false,"error":"connect failed"}`) as the sensor's own
+  advertised RSSI dropped to -92 -- plausibly just weak signal at BLE's
+  connection-vs-passive-scan link-budget difference, not a code issue,
+  but not independently confirmed either. Getting a real, decodable Mi
+  Flora reading is real, honest follow-up work, not done here. That's
+  different from what a Medisana BS440-family scale needs: its real
+  measurement arrives *asynchronously*, as a BLE indication, at a time
+  no fixed delay can reliably predict (previously handled by this
+  firmware directly in a now-removed `scale_reader.cpp` -- real, working
+  code, reverted to this generic-relay design instead once it became
+  clear a second device needed protocol logic duplicated in C++ too).
+  That case is still real, planned, deferred follow-up -- extending the
+  relay to support subscribe-and-wait is additive to this same endpoint,
+  not a redesign.

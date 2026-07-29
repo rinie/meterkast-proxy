@@ -18,10 +18,29 @@ String toHex(const std::string& raw) {
   return out;
 }
 
+// Inverse of toHex -- a write step's own trigger bytes arrive from
+// meterkast-dns as a hex string (JSON has no byte-string type, same
+// reasoning readings go out as hex), decoded back to raw bytes here
+// before handing them to NimBLE's own writeValue(). Malformed input
+// (odd length, non-hex characters) isn't specially guarded against --
+// strtoul silently returns 0 for a non-hex substring, which just means a
+// malformed write step writes wrong-but-harmless bytes rather than
+// crashing; the caller is meterkast-dns's own playlist-driven profile
+// code, not untrusted external input.
+std::string fromHex(const String& hex) {
+  std::string out;
+  out.reserve(hex.length() / 2);
+  for (size_t i = 0; i + 1 < hex.length(); i += 2) {
+    out += static_cast<char>(strtoul(hex.substring(i, i + 2).c_str(), nullptr, 16));
+  }
+  return out;
+}
+
 }  // namespace
 
 GattSessionResult gattSessionExecute(const String& address, const String& serviceUuid,
-                                      const std::vector<String>& characteristicUuids) {
+                                      const std::vector<String>& characteristicUuids,
+                                      const GattWriteStep* write) {
   GattSessionResult result;
   result.ok = false;
 
@@ -49,6 +68,28 @@ GattSessionResult gattSessionExecute(const String& address, const String& servic
     NimBLEDevice::deleteClient(client);
     result.error = "service not found on this device";
     return result;
+  }
+
+  if (write) {
+    NimBLERemoteCharacteristic* writeCharacteristic = service->getCharacteristic(write->characteristicUuid.c_str());
+    if (!writeCharacteristic || !writeCharacteristic->canWrite()) {
+      client->disconnect();
+      NimBLEDevice::deleteClient(client);
+      result.error = "write characteristic not found or not writable";
+      return result;
+    }
+    // A write failing here (unlike a missing read characteristic below)
+    // is a hard error, not silently skipped -- every subsequent read
+    // exists specifically to observe the effect of this write, so
+    // proceeding past a failed write would just return stale/zeroed
+    // data as if it were real.
+    if (!writeCharacteristic->writeValue(fromHex(write->hex))) {
+      client->disconnect();
+      NimBLEDevice::deleteClient(client);
+      result.error = "write failed";
+      return result;
+    }
+    if (write->delayMs > 0) delay(write->delayMs);
   }
 
   for (const String& characteristicUuid : characteristicUuids) {
