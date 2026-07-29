@@ -69,26 +69,40 @@ void handleBleDiscoverJson() {
   server.send(200, "application/json", bleDevicesJsonByPrefix(prefix));
 }
 
-// Generic BLE GATT read session -- connect to `address`, read whatever
-// characteristics under `serviceUuid` are listed in `read`, disconnect.
-// No device-specific knowledge here or in gatt_session.cpp at all: every
-// UUID comes from the request body, which meterkast-dns builds from its
-// own playlist. Read-only for now -- see gatt_session.h.
+// Generic BLE GATT session -- connect to `address`, optionally write a
+// trigger value to a characteristic first (an optional `write` object:
+// `{"characteristicUuid":"..","hex":"..","delayMs":..}`), then read
+// whatever characteristics under `serviceUuid` are listed in `read`,
+// disconnect. No device-specific knowledge here or in gatt_session.cpp
+// at all: every UUID/byte/delay comes from the request body, which
+// meterkast-dns builds from its own playlist. Still no
+// subscribe/wait-for-indication -- see gatt_session.h.
 void handleGattSession() {
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, server.arg("plain"));
   if (err || !doc["address"].is<const char*>() || !doc["serviceUuid"].is<const char*>() || !doc["read"].is<JsonArray>()) {
     server.send(
         400, "application/json",
-        "{\"ok\":false,\"error\":\"expected JSON body {\\\"address\\\":\\\"..\\\",\\\"serviceUuid\\\":\\\"..\\\",\\\"read\\\":[\\\"..\\\"]}\"}");
+        "{\"ok\":false,\"error\":\"expected JSON body {\\\"address\\\":\\\"..\\\",\\\"serviceUuid\\\":\\\"..\\\",\\\"read\\\":[\\\"..\\\"],"
+        "\\\"write\\\":{\\\"characteristicUuid\\\":\\\"..\\\",\\\"hex\\\":\\\"..\\\",\\\"delayMs\\\":..} (optional)}\"}");
     return;
   }
 
   std::vector<String> characteristicUuids;
   for (JsonVariant v : doc["read"].as<JsonArray>()) characteristicUuids.push_back(v.as<const char*>());
 
-  GattSessionResult result =
-      gattSessionExecute(doc["address"].as<const char*>(), doc["serviceUuid"].as<const char*>(), characteristicUuids);
+  GattWriteStep writeStep;
+  bool hasWrite = doc["write"].is<JsonObject>();
+  if (hasWrite) {
+    JsonObject w = doc["write"].as<JsonObject>();
+    writeStep.characteristicUuid = w["characteristicUuid"] | "";
+    writeStep.hex = w["hex"] | "";
+    writeStep.delayMs = w["delayMs"] | 0;
+  }
+
+  GattSessionResult result = gattSessionExecute(
+      doc["address"].as<const char*>(), doc["serviceUuid"].as<const char*>(), characteristicUuids,
+      hasWrite ? &writeStep : nullptr);
 
   JsonDocument response;
   response["ok"] = result.ok;
