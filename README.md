@@ -62,6 +62,10 @@ colliding with `m5stick-c`'s in the default shared cache):
 $env:PLATFORMIO_CORE_DIR = "<separate-path>"   # PowerShell; use export on macOS/Linux
 pio run -e esp32-c6-devkitc-1 -t upload --upload-port COMx
 ```
+If the board has a second USB connector wired directly to the C6's own
+native USB-Serial/JTAG peripheral (VID:PID `303A:1001`) rather than the
+CH343 bridge (`1A86:55D3`), use that COM port instead -- confirmed live
+~3.3x faster (1829.6 kbit/s vs ~550-560 kbit/s over the CH343 one).
 
 That same board also has an opt-in `esp32-c6-devkitc-1-zigbee` env for
 `GET /scan/zigbee` (see [Known real limitations](#known-real-limitations-stated-not-hidden)
