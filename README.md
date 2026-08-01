@@ -137,6 +137,21 @@ pio run -e esp32-c6-devkitc-1-matter -t upload --upload-port COMx
   page, requiring `http://192.168.4.1/` to be opened manually. The setup AP
   is open (no password) by design, the same tradeoff every consumer IoT
   device's first-time-setup AP makes.
+- **Future option, not planned now: dropping the captive portal to save
+  flash on `m5stick-c`.** That's the one env actually tight on space --
+  confirmed live at 90% flash used (1,179,177 / 1,310,720 bytes, its
+  default partition), versus 20-70% free on every C6/S3 env's 3MB+
+  partition. WiFiProvisioner's own footprint there is roughly 40-60KB
+  (its 36KB embedded HTML page plus `DNSServer` plus handler code -- it
+  reuses the same `WebServer` class `web_server.cpp`'s own `/status`
+  endpoint already needs, so no duplicate HTTP stack), a real chunk of
+  the ~131KB currently left. The tradeoff: without the portal, a
+  field-deployed `m5stick-c` with no saved WiFi could only be
+  reconfigured over USB serial, not by connecting a phone to its setup
+  AP -- the whole point of the runtime-provisioning work this project
+  started with. Worth revisiting only if `m5stick-c` actually needs more
+  flash headroom later (or just give it a bigger partition scheme, the
+  same fix already used for the C6/S3 envs, instead).
 - **`/scan/zigbee` reports nearby Zigbee *networks*, not their member
   devices** -- coordinators/PANs (PAN ID, channel, whether they're open
   to joins), the Zigbee equivalent of a WiFi network scan. Zigbee has no
