@@ -1,13 +1,17 @@
-// Waveshare ESP32-C6-Touch-LCD-1.47's display -- a JD9853 panel that
-// enumerates/responds to the standard ST7789 command set (Arduino_GFX has
-// no dedicated JD9853 class; this board doesn't need one), driven over its
-// dedicated 4-wire SPI bus. Pins and the panel-specific register-unlock
-// sequence below are not derived/guessed -- copied verbatim from a real,
-// benchmark-confirmed-working report against this exact board:
-// https://github.com/moononournation/Arduino_GFX/discussions/693
-// (the plain ST7789 init alone leaves this panel blank; JD9853 needs the
-// 0xDF 0x98 0x53 unlock write plus the vendor gamma/voltage table that
-// follows before anything appears).
+// Waveshare ESP32-C6-Touch-LCD-1.47's display -- a JD9853 panel driven
+// over its dedicated 4-wire SPI bus. Pins, init sequence, and the PWM
+// backlight control below are not derived/guessed -- ported from Volos
+// Projects' own published, working example for this exact board:
+// https://github.com/VolosR/WaveShareC6lvglexample (NewYearExample/
+// Display_ST7789.cpp/.h). An earlier version of this file used a
+// different pin mapping and register-unlock sequence sourced from
+// https://github.com/moononournation/Arduino_GFX/discussions/693 (which
+// names this same board) -- confirmed live, on this specific physical
+// unit, that mapping left the screen backlit but with zero visible
+// content, even a plain full-screen fill; Volos's SCLK/MOSI/MISO/RST
+// pins and gamma/voltage init table are a real, different, and
+// (confirmed via their own repo) actually-working reference for this
+// same product.
 #include "status_display.h"
 #include <Arduino_GFX_Library.h>
 
@@ -15,11 +19,13 @@ namespace {
 
 constexpr int PIN_DC = 15;
 constexpr int PIN_CS = 14;
-constexpr int PIN_SCK = 1;
-constexpr int PIN_MOSI = 2;
-constexpr int PIN_MISO = 3;
-constexpr int PIN_RST = 22;
-constexpr int PIN_BACKLIGHT = 23;
+constexpr int PIN_SCK = 7;
+constexpr int PIN_MOSI = 6;
+constexpr int PIN_MISO = 5;
+constexpr int PIN_RST = 21;
+constexpr int PIN_BACKLIGHT = 22;
+constexpr int BACKLIGHT_PWM_FREQ_HZ = 1000;
+constexpr int BACKLIGHT_PWM_RESOLUTION_BITS = 10;
 // This board's SD card slot shares the same SPI bus; must be deselected or
 // its floating CS can corrupt display writes.
 constexpr int PIN_SD_CS = 4;
@@ -38,87 +44,41 @@ void lcdRegInit() {
       DELAY, 120,
 
       BEGIN_WRITE,
-      WRITE_C8_D16, 0xDF, 0x98, 0x53,
-      WRITE_C8_D8, 0xB2, 0x23,
-
-      WRITE_COMMAND_8, 0xB7,
-      WRITE_BYTES, 4,
-      0x00, 0x47, 0x00, 0x6F,
-
-      WRITE_COMMAND_8, 0xBB,
-      WRITE_BYTES, 6,
-      0x1C, 0x1A, 0x55, 0x73, 0x63, 0xF0,
-
-      WRITE_C8_D16, 0xC0, 0x44, 0xA4,
-      WRITE_C8_D8, 0xC1, 0x16,
-
-      WRITE_COMMAND_8, 0xC3,
-      WRITE_BYTES, 8,
-      0x7D, 0x07, 0x14, 0x06, 0xCF, 0x71, 0x72, 0x77,
-
-      WRITE_COMMAND_8, 0xC4,
-      WRITE_BYTES, 12,
-      0x00, 0x00, 0xA0, 0x79, 0x0B, 0x0A, 0x16, 0x79, 0x0B, 0x0A, 0x16, 0x82,
-
-      WRITE_COMMAND_8, 0xC8,
-      WRITE_BYTES, 32,
-      0x3F, 0x32, 0x29, 0x29, 0x27, 0x2B, 0x27, 0x28, 0x28, 0x26, 0x25, 0x17,
-      0x12, 0x0D, 0x04, 0x00, 0x3F, 0x32, 0x29, 0x29, 0x27, 0x2B, 0x27, 0x28,
-      0x28, 0x26, 0x25, 0x17, 0x12, 0x0D, 0x04, 0x00,
-
-      WRITE_COMMAND_8, 0xD0,
-      WRITE_BYTES, 5,
-      0x04, 0x06, 0x6B, 0x0F, 0x00,
-
-      WRITE_C8_D16, 0xD7, 0x00, 0x30,
-      WRITE_C8_D8, 0xE6, 0x14,
-      WRITE_C8_D8, 0xDE, 0x01,
-
-      WRITE_COMMAND_8, 0xB7,
-      WRITE_BYTES, 5,
-      0x03, 0x13, 0xEF, 0x35, 0x35,
-
-      WRITE_COMMAND_8, 0xC1,
-      WRITE_BYTES, 3,
-      0x14, 0x15, 0xC0,
-
-      WRITE_C8_D16, 0xC2, 0x06, 0x3A,
-      WRITE_C8_D16, 0xC4, 0x72, 0x12,
-      WRITE_C8_D8, 0xBE, 0x00,
-      WRITE_C8_D8, 0xDE, 0x02,
-
-      WRITE_COMMAND_8, 0xE5,
-      WRITE_BYTES, 3,
-      0x00, 0x02, 0x00,
-
-      WRITE_COMMAND_8, 0xE5,
-      WRITE_BYTES, 3,
-      0x01, 0x02, 0x00,
-
-      WRITE_C8_D8, 0xDE, 0x00,
-      WRITE_C8_D8, 0x35, 0x00,
-      WRITE_C8_D8, 0x3A, 0x05,
-
-      WRITE_COMMAND_8, 0x2A,
-      WRITE_BYTES, 4,
-      0x00, 0x22, 0x00, 0xCD,
-
-      WRITE_COMMAND_8, 0x2B,
-      WRITE_BYTES, 4,
-      0x00, 0x00, 0x01, 0x3F,
-
-      WRITE_C8_D8, 0xDE, 0x02,
-
-      WRITE_COMMAND_8, 0xE5,
-      WRITE_BYTES, 3,
-      0x00, 0x02, 0x00,
-
-      WRITE_C8_D8, 0xDE, 0x00,
       WRITE_C8_D8, 0x36, 0x00,
+      WRITE_C8_D8, 0x3A, 0x05,
+      WRITE_C8_D16, 0xB0, 0x00, 0xE8,
+
+      WRITE_COMMAND_8, 0xB2,
+      WRITE_BYTES, 5,
+      0x0C, 0x0C, 0x00, 0x33, 0x33,
+
+      WRITE_C8_D8, 0xB7, 0x35,
+      WRITE_C8_D8, 0xBB, 0x35,
+      WRITE_C8_D8, 0xC0, 0x2C,
+      WRITE_C8_D8, 0xC2, 0x01,
+      WRITE_C8_D8, 0xC3, 0x13,
+      WRITE_C8_D8, 0xC4, 0x20,
+      WRITE_C8_D8, 0xC6, 0x0F,
+      WRITE_C8_D16, 0xD0, 0xA4, 0xA1,
+      WRITE_C8_D8, 0xD6, 0xA1,
+
+      WRITE_COMMAND_8, 0xE0,
+      WRITE_BYTES, 14,
+      0xF0, 0x00, 0x04, 0x04, 0x04, 0x05, 0x29, 0x33, 0x3E, 0x38, 0x12, 0x12, 0x28, 0x30,
+
+      WRITE_COMMAND_8, 0xE1,
+      WRITE_BYTES, 14,
+      0xF0, 0x07, 0x0A, 0x0D, 0x0B, 0x07, 0x28, 0x33, 0x3E, 0x36, 0x14, 0x14, 0x29, 0x32,
+
       WRITE_COMMAND_8, 0x21,
       END_WRITE,
 
       DELAY, 10,
+
+      BEGIN_WRITE,
+      WRITE_COMMAND_8, 0x11,
+      END_WRITE,
+      DELAY, 120,
 
       BEGIN_WRITE,
       WRITE_COMMAND_8, 0x29,
@@ -131,13 +91,14 @@ void lcdRegInit() {
 void statusDisplayBegin() {
   pinMode(PIN_SD_CS, OUTPUT);
   digitalWrite(PIN_SD_CS, HIGH);
-  pinMode(PIN_BACKLIGHT, OUTPUT);
-  digitalWrite(PIN_BACKLIGHT, HIGH);
 
-  gfx->begin();
+  ledcAttach(PIN_BACKLIGHT, BACKLIGHT_PWM_FREQ_HZ, BACKLIGHT_PWM_RESOLUTION_BITS);
+  ledcWrite(PIN_BACKLIGHT, (1 << BACKLIGHT_PWM_RESOLUTION_BITS) - 1);
+
+  bool ok = gfx->begin();
+  Serial.printf("Display: gfx->begin() = %s\n", ok ? "true" : "false");
   lcdRegInit();
   gfx->setRotation(2);  // USB connector at top, readable
-  gfx->invertDisplay(true);
 
   gfx->fillScreen(RGB565_BLACK);
   gfx->setTextColor(RGB565_LIME);

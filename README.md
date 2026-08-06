@@ -142,10 +142,19 @@ Dependency Finder reason). Each implementation's own header comment has the
 hardware wiring/library reasoning and, for the Waveshare and SenseCAP
 boards, the real sources it was verified against:
 - `m5stick-c`: M5Unified, the board's own built-in display -- no surprises.
-- `esp32-c6-waveshare-matter`: a JD9853 panel that speaks the standard
-  ST7789 command set, but needs a real vendor register-unlock sequence
-  first or it stays blank -- copied from a benchmark-confirmed-working
-  community report, not derived/guessed.
+- `esp32-c6-waveshare-matter`: a JD9853 panel, driven via Arduino_GFX's
+  `Arduino_ST7789` class (JD9853 speaks a close-enough-compatible command
+  set) with pins, a full gamma/voltage init table, and PWM backlight
+  control ported from [Volos Projects' own published example for this
+  exact board](https://github.com/VolosR/WaveShareC6lvglexample). A
+  different pin mapping and register-unlock sequence, sourced from a
+  GitHub discussion that also names this board, was tried first and
+  confirmed live -- on this specific physical unit -- to leave the panel
+  backlit but showing nothing, not even a plain full-screen color fill;
+  see `status_display_waveshare.cpp`'s own header comment for the full
+  story. Real lesson: for oddball display boards, a second independent,
+  actually-tested source beats a single forum post, even one that names
+  the exact board and claims to be benchmark-confirmed.
 - `esp32-s3-sensecap-indicator`: an ST7701S 480x480 RGB/DPI panel, driven
   directly by the ESP32-S3's own LCD_CAM peripheral -- **not** by the
   board's separate RP2040 co-processor, which earlier revisions of this
