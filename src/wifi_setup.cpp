@@ -1,5 +1,6 @@
 #include "wifi_setup.h"
 #include "config.h"
+#include "status_display.h"
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <Preferences.h>
@@ -124,6 +125,8 @@ void handleSerialLine(const String& line) {
 }  // namespace
 
 void wifiSetupBegin() {
+  statusDisplayBegin();
+
   WiFi.mode(WIFI_STA);
   WiFi.setHostname(DEVICE_HOSTNAME);
 
@@ -131,8 +134,10 @@ void wifiSetupBegin() {
     runProvisioningPortal();
   }
 
+  String ip = WiFi.localIP().toString();
   Serial.print("Connected, IP: ");
-  Serial.println(WiFi.localIP());
+  Serial.println(ip);
+  statusDisplayShowIP(ip);
 
   if (MDNS.begin(DEVICE_HOSTNAME)) {
     MDNS.addService("http", "tcp", 80);

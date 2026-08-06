@@ -128,6 +128,33 @@ pio run -e esp32-c6-devkitc-1-matter -t upload --upload-port COMx
 | `POST /wifi/reset` | JSON object | Clears the saved WiFi credentials and reboots back into the setup captive portal -- see [Setup](#setup) |
 | `GET /status` | JSON object | compact health-check shape, incl. `{"app":"meterkast-proxy","version":"<branch>@<hash>[+uncommitted],commit=<ts>,built=<ts>"}` -- confirms both that this is the proxy and exactly which build is running |
 
+## Status display
+
+Boards with an onboard screen (`m5stick-c`, `esp32-c6-waveshare-matter`,
+`esp32-s3-sensecap-indicator`) show plain text -- no graphics, boot-log
+style, per the actual ask -- on it: `meterkast-proxy` / `connecting...`
+while WiFi is joining, then the device's own IP address once connected
+(`src/status_display.h` and its three real `status_display_*.cpp`
+implementations plus a no-op `status_display_stub.cpp` for every other
+board -- same real-vs-stub `build_src_filter` split as
+`zigbee_scanner.cpp`/`matter_bridge.cpp`, for the same PlatformIO Library
+Dependency Finder reason). Each implementation's own header comment has the
+hardware wiring/library reasoning and, for the Waveshare and SenseCAP
+boards, the real sources it was verified against:
+- `m5stick-c`: M5Unified, the board's own built-in display -- no surprises.
+- `esp32-c6-waveshare-matter`: a JD9853 panel that speaks the standard
+  ST7789 command set, but needs a real vendor register-unlock sequence
+  first or it stays blank -- copied from a benchmark-confirmed-working
+  community report, not derived/guessed.
+- `esp32-s3-sensecap-indicator`: an ST7701S 480x480 RGB/DPI panel, driven
+  directly by the ESP32-S3's own LCD_CAM peripheral -- **not** by the
+  board's separate RP2040 co-processor, which earlier revisions of this
+  README (and this project's own first research pass) incorrectly assumed
+  owned the display; Seeed's own official Arduino guide and openHASP's
+  board profile both drive it straight from the S3. Its panel's own
+  init-command CS line routes through this board's PCA9535 I2C GPIO
+  expander, not a plain GPIO -- confirmed against Seeed's own example.
+
 ## Known real limitations (stated, not hidden)
 
 - **The setup captive portal ([WiFiProvisioner](https://github.com/SanteriLindfors/WiFiProvisioner))
