@@ -8,23 +8,33 @@
 void bleScannerBegin();
 void bleScannerLoop();
 
+// Sentinel for the minRssi parameters below: no floor, every device
+// passes regardless of signal strength.
+constexpr int BLE_NO_RSSI_FLOOR = -128;
+
 // A JSON array of every device seen since boot (bounded, oldest evicted
 // once full -- see MAX_TRACKED_DEVICES in the .cpp): [{address, name?,
-// rssi, ageMs, serviceData?}, ...]. serviceData (present only when the
-// device's advertisement actually carries any) is {serviceUuid: hex,
-// ...} raw bytes, generic capture with no assumption about what any of
-// it means -- decoding is meterkast-dns's playlist-driven job now, not
-// firmware's. Mirrors the shape meterkast-dns's own unclaimed*Devices()
-// functions already produce on the Node side, so proxy-adapter.js there
-// is a straight fetch+map, the same pattern as dirigera-adapter.js.
-String bleDevicesJson();
+// rssi, proximity, ageMs, serviceData?}, ...]. serviceData (present only
+// when the device's advertisement actually carries any) is {serviceUuid:
+// hex, ...} raw bytes, generic capture with no assumption about what any
+// of it means -- decoding is meterkast-dns's playlist-driven job now, not
+// firmware's. `proximity` is a coarse RSSI-bucketed label -- FAR/TOO
+// FAR/NEAR/CLOSE/VERY CLOSE, same thresholds and names as this project's
+// own BleWatch exploration sketch used, not a distance estimate (RSSI
+// isn't one -- obstacles/orientation/interference all move it around).
+// minRssi (default BLE_NO_RSSI_FLOOR, i.e. no filtering) drops any device
+// whose RSSI reads weaker than it. Mirrors the shape meterkast-dns's own
+// unclaimed*Devices() functions already produce on the Node side, so
+// proxy-adapter.js there is a straight fetch+map, the same pattern as
+// dirigera-adapter.js.
+String bleDevicesJson(int minRssi = BLE_NO_RSSI_FLOOR);
 size_t bleDeviceCount();
 
 // Same shape as bleDevicesJson(), filtered to addresses starting with
 // prefix (case-insensitive; empty prefix matches everything). A
 // discovery helper for finding an unknown-up-front device's MAC (e.g.
 // GET /ble/discover) without a dedicated active scan.
-String bleDevicesJsonByPrefix(const String& prefix);
+String bleDevicesJsonByPrefix(const String& prefix, int minRssi = BLE_NO_RSSI_FLOOR);
 
 // Stops/restarts the scan on demand -- needed once, for Matter's own BLE
 // commissioning (matter_bridge.cpp): NimBLE-Arduino's continuous central
