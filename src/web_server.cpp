@@ -41,8 +41,15 @@ void handleRoot() {
   server.send(200, "text/html", html);
 }
 
+// ?minRssi= drops any device weaker than that (e.g. ?minRssi=-67 for
+// "NEAR or closer", matching ble_scanner.h's proximityLabel() buckets) --
+// omit for every device seen, the previous behavior.
+int bleMinRssiArg() {
+  return server.hasArg("minRssi") ? server.arg("minRssi").toInt() : BLE_NO_RSSI_FLOOR;
+}
+
 void handleBleJson() {
-  server.send(200, "application/json", bleDevicesJson());
+  server.send(200, "application/json", bleDevicesJson(bleMinRssiArg()));
 }
 
 void handleMdnsJson() {
@@ -66,7 +73,7 @@ void handleZigbeeJson() {
 // built for, override with ?prefix= for anything else.
 void handleBleDiscoverJson() {
   String prefix = server.hasArg("prefix") ? server.arg("prefix") : "E4:54:EB";
-  server.send(200, "application/json", bleDevicesJsonByPrefix(prefix));
+  server.send(200, "application/json", bleDevicesJsonByPrefix(prefix, bleMinRssiArg()));
 }
 
 // Generic BLE GATT session -- connect to `address`, optionally write a

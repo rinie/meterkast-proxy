@@ -48,6 +48,18 @@ String toHex(const std::string& raw) {
 // shape meterkast-dns's own log.js ring buffer uses on the Node side.
 constexpr size_t MAX_TRACKED_DEVICES = 100;
 
+// RSSI-bucketed proximity label, same thresholds/names as this project's
+// own BleWatch exploration sketch (github.com/PierreGode/WaveshareESP32C6LCD)
+// used -- not a real distance estimate, just a coarser, human-readable
+// version of the same raw RSSI already returned alongside it.
+const char* proximityLabel(int rssi) {
+  if (rssi >= -40) return "VERY CLOSE";
+  if (rssi >= -50) return "CLOSE";
+  if (rssi >= -67) return "NEAR";
+  if (rssi >= -80) return "TOO FAR";
+  return "FAR";
+}
+
 std::map<std::string, SeenDevice> seenDevices;
 
 void evictOldestIfFull() {
@@ -140,9 +152,10 @@ size_t bleDeviceCount() {
 namespace {
 
 // Shared by bleDevicesJson()/bleDevicesJsonByPrefix() -- an empty prefix
-// matches everything. Case-insensitive since MAC addresses show up in
-// either case depending on the caller.
-String serializeSeenDevices(const String& prefix) {
+// matches everything, minRssi=BLE_NO_RSSI_FLOOR skips the RSSI check
+// entirely. Prefix match is case-insensitive since MAC addresses show up
+// in either case depending on the caller.
+String serializeSeenDevices(const String& prefix, int minRssi) {
   std::string prefixLower(prefix.c_str());
   std::transform(prefixLower.begin(), prefixLower.end(), prefixLower.begin(), ::tolower);
 
@@ -155,10 +168,12 @@ String serializeSeenDevices(const String& prefix) {
       std::transform(addressLower.begin(), addressLower.end(), addressLower.begin(), ::tolower);
       if (addressLower.compare(0, prefixLower.size(), prefixLower) != 0) continue;
     }
+    if (device.rssi < minRssi) continue;
     JsonObject obj = arr.add<JsonObject>();
     obj["address"] = address;
     if (!device.name.empty()) obj["name"] = device.name;
     obj["rssi"] = device.rssi;
+    obj["proximity"] = proximityLabel(device.rssi);
     obj["ageMs"] = now - device.lastSeenMs;
     if (!device.serviceData.empty()) {
       JsonObject serviceDataObj = obj["serviceData"].to<JsonObject>();
@@ -174,13 +189,13 @@ String serializeSeenDevices(const String& prefix) {
 
 }  // namespace
 
-String bleDevicesJson() {
-  return serializeSeenDevices("");
+String bleDevicesJson(int minRssi) {
+  return serializeSeenDevices("", minRssi);
 }
 
 // Discovery helper for devices whose MAC isn't known up front (e.g. the
 // scale reader, config.h) -- reuses this already-running passive scan
 // instead of a dedicated active scan for the purpose.
-String bleDevicesJsonByPrefix(const String& prefix) {
-  return serializeSeenDevices(prefix);
+String bleDevicesJsonByPrefix(const String& prefix, int minRssi) {
+  return serializeSeenDevices(prefix, minRssi);
 }
