@@ -128,6 +128,59 @@ pio run -e esp32-c6-devkitc-1-matter -t upload --upload-port COMx
 | `POST /wifi/reset` | JSON object | Clears the saved WiFi credentials and reboots back into the setup captive portal -- see [Setup](#setup) |
 | `GET /status` | JSON object | compact health-check shape, incl. `{"app":"meterkast-proxy","version":"<branch>@<hash>[+uncommitted],commit=<ts>,built=<ts>"}` -- confirms both that this is the proxy and exactly which build is running |
 
+## Status display
+
+Boards with an onboard screen (`m5stick-c`, `esp32-c6-waveshare-matter`,
+`esp32-s3-sensecap-indicator`) show plain text -- no graphics, boot-log
+style, per the actual ask -- on it: `meterkast-proxy` / `connecting...`
+while WiFi is joining, then the device's own IP address once connected
+(`src/status_display.h` and its three real `status_display_*.cpp`
+implementations plus a no-op `status_display_stub.cpp` for every other
+board -- same real-vs-stub `build_src_filter` split as
+`zigbee_scanner.cpp`/`matter_bridge.cpp`, for the same PlatformIO Library
+Dependency Finder reason). Each implementation's own header comment has the
+hardware wiring/library reasoning and, for the Waveshare and SenseCAP
+boards, the real sources it was verified against:
+- `m5stick-c`: M5Unified, the board's own built-in display -- no surprises.
+- `esp32-c6-waveshare-matter`: a JD9853 panel, driven via Arduino_GFX's
+  `Arduino_ST7789` class (JD9853 speaks a close-enough-compatible command
+  set) with pins, a full gamma/voltage init table, and PWM backlight
+  control ported from [Volos Projects' own published example for this
+  exact board](https://github.com/VolosR/WaveShareC6lvglexample). A
+  different pin mapping and register-unlock sequence, sourced from a
+  GitHub discussion that also names this board, was tried first and
+  confirmed live -- on this specific physical unit -- to leave the panel
+  backlit but showing nothing, not even a plain full-screen color fill;
+  see `status_display_waveshare.cpp`'s own header comment for the full
+  story. Real lesson: for oddball display boards, a second independent,
+  actually-tested source beats a single forum post, even one that names
+  the exact board and claims to be benchmark-confirmed.
+- `esp32-s3-sensecap-indicator`: an ST7701S 480x480 RGB/DPI panel, driven
+  directly by the ESP32-S3's own LCD_CAM peripheral -- **not** by the
+  board's separate RP2040 co-processor, which earlier revisions of this
+  README (and this project's own first research pass) incorrectly assumed
+  owned the display; Seeed's own official Arduino guide and openHASP's
+  board profile both drive it straight from the S3. Its panel's own
+  init-command CS line routes through this board's PCA9535 I2C GPIO
+  expander, not a plain GPIO. Seeed's own published example passes a
+  PCA95x5 port constant straight in as Arduino_GFX's CS argument -- looks
+  reasonable, but confirmed live it doesn't work: Arduino_GFX's databus
+  classes treat CS as a plain GPIO number with no expander awareness at
+  all, so that constant just toggles an unrelated real pin and the
+  panel's init sequence never lands (backlit, but blank -- the exact
+  same failure another user hit and worked around with unpublished
+  custom code, per
+  [this GitHub discussion](https://github.com/moononournation/Arduino_GFX/discussions/334)).
+  `status_display_sensecap.cpp` has its own small `Arduino_DataBus`
+  subclass instead: real-GPIO bit-banged SCK/MOSI plus raw I2C register
+  writes to the expander for CS, following the same register map as
+  Arduino_GFX's own bundled (but pin-incompatible) `Arduino_XL9535SWSPI`
+  reference class. Also needed a non-zero `bounce_buffer_size_px` on the
+  RGB panel -- confirmed live, without it the screen flickered/flashed
+  roughly once a second while WiFi was active (PSRAM bus contention
+  between the LCD DMA and WiFi, a known ESP32-S3 RGB-panel class of
+  issue).
+
 ## Known real limitations (stated, not hidden)
 
 - **The setup captive portal ([WiFiProvisioner](https://github.com/SanteriLindfors/WiFiProvisioner))
