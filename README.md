@@ -162,7 +162,24 @@ boards, the real sources it was verified against:
   owned the display; Seeed's own official Arduino guide and openHASP's
   board profile both drive it straight from the S3. Its panel's own
   init-command CS line routes through this board's PCA9535 I2C GPIO
-  expander, not a plain GPIO -- confirmed against Seeed's own example.
+  expander, not a plain GPIO. Seeed's own published example passes a
+  PCA95x5 port constant straight in as Arduino_GFX's CS argument -- looks
+  reasonable, but confirmed live it doesn't work: Arduino_GFX's databus
+  classes treat CS as a plain GPIO number with no expander awareness at
+  all, so that constant just toggles an unrelated real pin and the
+  panel's init sequence never lands (backlit, but blank -- the exact
+  same failure another user hit and worked around with unpublished
+  custom code, per
+  [this GitHub discussion](https://github.com/moononournation/Arduino_GFX/discussions/334)).
+  `status_display_sensecap.cpp` has its own small `Arduino_DataBus`
+  subclass instead: real-GPIO bit-banged SCK/MOSI plus raw I2C register
+  writes to the expander for CS, following the same register map as
+  Arduino_GFX's own bundled (but pin-incompatible) `Arduino_XL9535SWSPI`
+  reference class. Also needed a non-zero `bounce_buffer_size_px` on the
+  RGB panel -- confirmed live, without it the screen flickered/flashed
+  roughly once a second while WiFi was active (PSRAM bus contention
+  between the LCD DMA and WiFi, a known ESP32-S3 RGB-panel class of
+  issue).
 
 ## Known real limitations (stated, not hidden)
 
