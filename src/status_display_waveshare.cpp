@@ -98,7 +98,12 @@ void statusDisplayBegin() {
   bool ok = gfx->begin();
   Serial.printf("Display: gfx->begin() = %s\n", ok ? "true" : "false");
   lcdRegInit();
-  gfx->setRotation(2);  // USB connector at top, readable
+  // Landscape (320x172, not the panel's native 172x320 portrait) --
+  // confirmed live, the wider 320px line lets "meterkast-proxy" actually
+  // fit at this text size, which the narrower portrait width didn't.
+  // Same col/row offset pair as before works unchanged: Arduino_TFT's
+  // rotation handling already picks the right offset per rotation.
+  gfx->setRotation(1);
 
   gfx->fillScreen(RGB565_BLACK);
   gfx->setTextColor(RGB565_LIME);
